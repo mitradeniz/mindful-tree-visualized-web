@@ -2,7 +2,7 @@
 
 FROM node:22.23.2-alpine3.24 AS build
 
-WORKDIR /app
+WORKDIR /workspace
 
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
@@ -17,7 +17,7 @@ FROM nginxinc/nginx-unprivileged:1.28.1-alpine
 USER root
 
 COPY --chown=101:101 deploy/nginx/default.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/dist /tmp/branchscript-dist
+COPY --from=build /workspace/dist /tmp/branchscript-dist
 
 RUN rm -rf /srv/branchscript /usr/share/nginx/html \
     && mkdir -p /srv/branchscript \
