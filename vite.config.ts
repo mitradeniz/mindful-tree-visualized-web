@@ -2,22 +2,20 @@ import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  input: {
+    root: resolve(import.meta.dirname, "index.html"),
+    app: resolve(import.meta.dirname, "app/index.html"),
+    blog: resolve(import.meta.dirname, "blog/index.html"),
+    visualThinking: resolve(import.meta.dirname, "blog/visual-thinking.html"),
+    brainstormingMaps: resolve(import.meta.dirname, "blog/brainstorming-maps.html"),
+    algorithmVisualization: resolve(import.meta.dirname, "blog/algorithm-visualization.html"),
+    faq: resolve(import.meta.dirname, "faq/index.html"),
+  },
   build: {
     license: {
       fileName: "licenses.md",
     },
     sourcemap: false,
-    rolldownOptions: {
-      input: {
-        root: resolve(import.meta.dirname, "index.html"),
-        app: resolve(import.meta.dirname, "app/index.html"),
-        blog: resolve(import.meta.dirname, "blog/index.html"),
-        visualThinking: resolve(import.meta.dirname, "blog/visual-thinking.html"),
-        brainstormingMaps: resolve(import.meta.dirname, "blog/brainstorming-maps.html"),
-        algorithmVisualization: resolve(import.meta.dirname, "blog/algorithm-visualization.html"),
-        faq: resolve(import.meta.dirname, "faq/index.html"),
-      },
-    },
   },
   server: {
     host: "127.0.0.1",
