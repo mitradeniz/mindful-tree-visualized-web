@@ -19,8 +19,16 @@ RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.28.1-alpine
 
+USER root
+
 COPY --chown=101:101 deploy/nginx/default.conf /etc/nginx/conf.d/default.conf
-COPY --chown=101:101 --from=build /app/dist/. /srv/branchscript/
+COPY --from=build /app/dist /tmp/branchscript-dist
+
+RUN rm -rf /srv/branchscript /usr/share/nginx/html \
+    && mkdir -p /srv/branchscript \
+    && cp -a /tmp/branchscript-dist/. /srv/branchscript/ \
+    && rm -rf /tmp/branchscript-dist \
+    && chown -R 101:101 /srv/branchscript
 
 USER 101:101
 
