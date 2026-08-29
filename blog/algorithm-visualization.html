@@ -1,0 +1,38 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="description" content="Learn to visualize pseudocode algorithms together with arrays, stacks, queues, linked lists, records, and pointers." /><link rel="canonical" href="https://branchscript.neuralithaistudio.com/blog/algorithm-visualization.html" /><link rel="icon" href="/branchscript-mark.svg" type="image/svg+xml" /><link rel="stylesheet" href="/src/styles/site.css" /><title>Visualize Pseudocode & Data Structures — BranchScript</title></head><body>
+<header class="site-header"><a class="site-brand" href="/"><img src="/branchscript-mark.svg" alt="" width="34" height="34" /><span>BranchScript</span></a><nav><a href="/blog/">All guides</a><a href="/faq/">FAQ</a><a class="nav-cta" href="/app/">Visualize an algorithm</a></nav></header>
+<main><header class="site-section article-hero"><span class="site-eyebrow">ALGORITHMS & DATA</span><h1>Visualize pseudocode and data structures together</h1><p>An algorithm explains what happens next. A data structure explains what the next step changes. Seeing both removes a major source of confusion.</p><span class="article-meta">Updated August 28, 2026 · 9 minute read</span></header>
+<div class="site-section article-layout"><article class="article-body">
+<p>Pseudocode is excellent for compressing an algorithm, but its compactness hides motion. A loop jumps backward, a condition splits the future, and one assignment changes state used many lines later. Visualization expands those relationships without requiring language-specific syntax.</p>
+<h2 id="control">Map control flow first</h2><p>Give starts, functions, operations, conditions, loops, and return values different roles. Connect them in execution order and label conditional edges. Binary search becomes easier to inspect when the two range updates visibly return to the same condition.</p>
+<pre><code>diagram search "Binary Search"
+@view algorithm
+
+start begin "sorted values, target"
+operation bounds "low = 0; high = length - 1"
+condition remaining "low &lt;= high?"
+operation midpoint "mid = floor((low + high) / 2)"
+return missing "return -1"
+
+connect begin -&gt; bounds
+connect bounds -&gt; remaining
+connect remaining -&gt; midpoint "yes"
+connect remaining -&gt; missing "no"</code></pre>
+<h2 id="labels">Keep edge labels precise</h2><p>A diamond alone does not explain why execution moved. Use labels such as <code>found</code>, <code>smaller</code>, <code>not empty</code>, or <code>repeat</code>. The label should describe the condition that was true, not merely say “next.”</p>
+<h2 id="state">Create a second view for state</h2><p>Switch to the data view when the challenge is understanding memory or relationships. Arrays benefit from indexed cells. Stacks need a visible top, queues need a front, and linked structures need explicit pointers. A record node can show the value while a pointer node makes the reference a first-class part of the diagram.</p>
+<pre><code>diagram queue_state "Breadth-first search queue"
+@view data
+
+queue frontier "front: B · C · D"
+record current "A · visited"
+array visited "[A, B, C]"
+pointer next "dequeue"
+
+connect current -&gt; next
+connect next -&gt; frontier
+connect current -&gt; visited "mark"</code></pre>
+<h2 id="trace">Trace one concrete input</h2><p>Do not begin with every possible case. Choose a small input that reaches the interesting branch. For sorting, four values are often enough. For a linked list, two records and a null pointer expose the essential mechanics. Walk the algorithm with that state beside it.</p>
+<h2 id="complexity">Add complexity after behavior is clear</h2><p>Big-O notation summarizes growth; it does not replace an explanation of behavior. Once the path is correct, add notes showing which loop controls the dominant work and which structure consumes additional memory.</p>
+<h2 id="teach">Use the live runner to teach</h2><p>Ask the learner to predict the next node before choosing a branch. After the choice, update or inspect the data view. This turns the diagram into an active explanation and reveals whether the learner understands the condition rather than memorizing the picture.</p>
+<h2 id="limits">Know the boundary</h2><p>A visualization is a model, not a debugger. It should emphasize decisions and state changes that matter to the explanation. Keep implementation details in source code and use the map as a durable guide to the reasoning.</p>
+</article><aside class="article-aside"><strong>In this guide</strong><a href="#control">Control flow</a><a href="#labels">Conditional labels</a><a href="#state">Data state</a><a href="#trace">Concrete traces</a><a href="#complexity">Complexity</a><a href="#teach">Live teaching</a></aside></div></main>
+<footer class="site-footer"><a class="site-brand" href="/"><img src="/branchscript-mark.svg" alt="" width="28" height="28" /><span>BranchScript</span></a><p>Open visual thinking tools by Neuralith AI Studio.</p><nav><a href="/blog/">Blog</a><a href="/app/">Playground</a></nav></footer></body></html>

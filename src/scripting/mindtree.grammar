@@ -1,0 +1,65 @@
+@top Document { LineEnd* StatementList? }
+
+StatementList { Statement (LineEnd+ Statement)* LineEnd* }
+
+Statement {
+  TreeStatement |
+  NodeStatement |
+  AttributeStatement |
+  LinkStatement |
+  ConnectionStatement
+}
+
+TreeStatement { ("tree" | "diagram") Identifier String }
+
+NodeStatement { NodeKeyword Identifier String }
+
+NodeKeyword {
+  "topic" |
+  "question" |
+  "response" |
+  "followup" |
+  "note" |
+  "example" |
+  "input" |
+  "layer" |
+  "neuron" |
+  "process" |
+  "decision" |
+  "outcome" |
+  "output"
+  | "step"
+  | "choice"
+  | "result"
+  | "start"
+  | "function"
+  | "operation"
+  | "condition"
+  | "loop"
+  | "return"
+  | "array"
+  | "item"
+  | "stack"
+  | "queue"
+  | "list"
+  | "record"
+  | "pointer"
+}
+
+AttributeStatement { "@" Identifier AttributeValue* }
+
+AttributeValue { Identifier | String }
+
+LinkStatement { "->" Identifier }
+
+ConnectionStatement { "connect" Identifier "->" Identifier String? }
+
+@skip { HorizontalSpace | LineComment }
+
+@tokens {
+  HorizontalSpace { $[ \t]+ }
+  LineComment { "#" ![\n\r]* }
+  LineEnd { "\r"? "\n" }
+  Identifier { @asciiLetter (@asciiLetter | @digit | "_" | "-")* }
+  String { '"' !["\n\r]* '"' }
+}

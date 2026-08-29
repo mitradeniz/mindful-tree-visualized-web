@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Learn BranchScript with visual examples. Build interview answer trees, logic flows, pseudocode algorithms, neural maps, and data structures in the browser or self-host with TypeScript and Docker." />
+    <meta name="theme-color" content="#171a18" />
+    <link rel="canonical" href="https://branchscript.neuralithaistudio.com/" />
+    <link rel="icon" href="/branchscript-mark.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/branchscript-mark-512.png" />
+    <link rel="stylesheet" href="/src/styles/site.css" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="BranchScript — Give structure to every idea" />
+    <meta property="og:description" content="Script or draw thought trees, algorithms, neural flows, and data structures on one living canvas." />
+    <meta property="og:url" content="https://branchscript.neuralithaistudio.com/" />
+    <meta property="og:image" content="https://branchscript.neuralithaistudio.com/branchscript-social.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {"@context":"https://schema.org","@graph":[{"@type":"SoftwareApplication","name":"BranchScript","applicationCategory":"ProductivityApplication","operatingSystem":"Web","url":"https://branchscript.neuralithaistudio.com/","description":"A visual thinking workspace for thought trees, brainstorming, logic, pseudocode algorithms, neural flows, and data structures.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"featureList":["Thought trees","Logic flows","Neural maps","Pseudocode visualization","Data structure diagrams","Local and private cloud saving"]},{"@type":"HowTo","name":"Create your first BranchScript diagram","description":"Turn a small .mtree script into an interactive visual map.","totalTime":"PT2M","step":[{"@type":"HowToStep","name":"Choose a visual language","text":"Open the playground and choose tree, flow, neural, logic, algorithm, or data."},{"@type":"HowToStep","name":"Add boxes","text":"Write a node declaration or use the visual builder."},{"@type":"HowToStep","name":"Connect and run","text":"Indent tree branches or connect named nodes, then start Live Run."}]}]}
+    </script>
+    <title>BranchScript Guide — Visual Thinking, Algorithms & Data Structures</title>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="site-brand" href="/" aria-label="BranchScript home"><img src="/branchscript-mark.svg" alt="" width="34" height="34" /><span>BranchScript</span></a>
+      <nav aria-label="Primary navigation"><a href="#guide">Guide</a><a href="#syntax">Syntax</a><a href="#examples">Examples</a><a href="#install">Install</a><a href="/blog/">Blog</a><a href="/faq/">FAQ</a><a class="nav-cta" href="/app/">Open playground</a></nav>
+    </header>
+
+    <main>
+      <section class="hero site-section">
+        <div class="hero-copy">
+          <span class="site-eyebrow">OPEN VISUAL THINKING WORKSPACE</span>
+          <h1>Give structure to every idea.</h1>
+          <p class="hero-lead">Turn possible answers, branching thoughts, pseudocode algorithms, and data structures into a living map. Write BranchScript or build visually—both stay in sync.</p>
+          <div class="hero-actions"><a class="site-button primary" href="/app/">Start mapping free</a><a class="site-button secondary" href="#guide">Follow the 2-minute guide</a></div>
+          <div class="trust-row"><span>No installation to try</span><span>Open TypeScript stack</span><span>Local-first</span><span>Private cloud save</span></div>
+        </div>
+        <div class="hero-workbench" aria-label="BranchScript example transforming pseudocode into a diagram">
+          <div class="hero-code"><span class="code-file">search.mtree</span><pre><code><b>diagram</b> search <i>"Binary Search"</i>
+<em>@view algorithm</em>
+
+<b>start</b> begin <i>"sorted values"</i>
+<b>condition</b> found <i>"value == target?"</i>
+<b>return</b> done <i>"return index"</i>
+
+<b>connect</b> begin -&gt; found
+<b>connect</b> found -&gt; done <i>"yes"</i></code></pre></div>
+          <div class="hero-canvas" aria-hidden="true"><span class="canvas-grid"></span><span class="demo-node demo-start">SORTED VALUES</span><span class="demo-edge edge-one"></span><span class="demo-node demo-choice">VALUE == TARGET?</span><span class="demo-edge edge-two"></span><span class="demo-node demo-return">RETURN INDEX</span><span class="demo-label">yes</span></div>
+        </div>
+      </section>
+
+      <section id="guide" class="site-section guide-section">
+        <div class="section-heading-site"><span class="site-eyebrow">START IN TWO MINUTES</span><h2>From a blank canvas to a path you can practice.</h2><p>You do not need to learn the language before opening the app. Start visually, inspect the generated source, then use whichever side is faster for the next change.</p></div>
+        <ol class="onboarding-grid">
+          <li><span class="step-number">01</span><div class="step-visual choose-view" aria-hidden="true"><i>Tree</i><i>Flow</i><i>Neural</i><i>Logic</i><i>Algorithm</i><i>Data</i></div><h3>Choose a visual language</h3><p>Use Tree for interview preparation, Logic for decisions, Algorithm for pseudocode, or Data for state.</p></li>
+          <li><span class="step-number">02</span><div class="step-visual edit-node" aria-hidden="true"><span>Prepared answer</span><strong>I owned the API contract and rollout.</strong><small>Double-click to edit</small></div><h3>Add what you want to remember</h3><p>Press Add or double-click the canvas. Titles, context, prepared answers, and follow-up cues stay inside each box.</p></li>
+          <li><span class="step-number">03</span><div class="step-visual run-path" aria-hidden="true"><i></i><b></b><i></i><b></b><i></i></div><h3>Walk the path live</h3><p>Start Live Run, choose a branch, and rehearse the answer in the same order you expect to recall it.</p></li>
+        </ol>
+        <div class="guide-action"><p><strong>Prefer not to script?</strong> Every node and connection can be created from the visual builder.</p><a class="site-button primary" href="/app/">Create the first box</a></div>
+      </section>
+
+      <section id="syntax" class="site-section syntax-section">
+        <div class="section-heading-site"><span class="site-eyebrow">THE .MTREE LANGUAGE</span><h2>A readable script that remains a diagram.</h2><p>BranchScript files are plain UTF-8 text with the <code>.mtree</code> extension. They are parsed as data, never executed as JavaScript, and every visual edit is written back to the same source.</p></div>
+        <div class="syntax-workbench">
+          <div class="syntax-code-panel">
+            <div class="code-toolbar"><span>interview.mtree</span><span>Tree · top down</span></div>
+            <pre aria-label="Interview preparation BranchScript example"><code><span class="line"><b>diagram</b> interview <i>"Backend Interview"</i></span>
+<span class="line"><em>@view tree</em></span>
+<span class="line"></span>
+<span class="line"><b>question</b> intro <i>"Tell me about yourself"</i></span>
+<span class="line indent"><b>response</b> concise <i>"Backend-focused answer"</i></span>
+<span class="line indent-2"><em>@text</em> <i>"Keep it under two minutes."</i></span>
+<span class="line indent-2"><em>@answer</em> <i>"I build reliable APIs..."</i></span>
+<span class="line indent-2"><em>@feature</em> <i>"Follow-up: ownership"</i></span>
+<span class="line indent-2"><em>@priority high</em></span>
+<span class="line indent-2"><b>followup</b> scale <i>"How did it scale?"</i></span>
+<span class="line indent-3"><b>example</b> result <i>"Reduced p95 by 38%"</i></span></code></pre>
+          </div>
+          <ol class="syntax-anatomy">
+            <li><span>1</span><div><strong>Choose the diagram</strong><p><code>@view tree</code> selects layout, node semantics, and Live Run motion.</p></div></li>
+            <li><span>2</span><div><strong>Declare a box</strong><p><code>question intro "..."</code> is type, stable id, and visible title.</p></div></li>
+            <li><span>3</span><div><strong>Indent to branch</strong><p>Exactly two spaces place a node below the previous one in a thought tree.</p></div></li>
+            <li><span>4</span><div><strong>Store useful detail</strong><p><code>@answer</code> holds recall-ready wording; <code>@feature</code> holds the likely follow-up or rule.</p></div></li>
+            <li><span>5</span><div><strong>Connect graph views</strong><p>For flows and algorithms, use <code>connect source -&gt; target "label"</code>.</p></div></li>
+          </ol>
+        </div>
+        <div class="reference-strip" aria-label="BranchScript quick reference"><div><span>Header</span><code>diagram id "Title"</code></div><div><span>Tree branch</span><code>  response id "Text"</code></div><div><span>Connection</span><code>connect a -&gt; b "yes"</code></div><div><span>Content</span><code>@text · @answer · @feature</code></div><div><span>Style</span><code>@color · @shape · @status</code></div></div>
+      </section>
+
+      <section id="examples" class="site-section examples-section">
+        <div class="section-heading-site"><span class="site-eyebrow">SCRIPT → VISUAL RESULT</span><h2>See the language in context.</h2><p>These examples use the same node types, content fields, and connections available in the playground.</p></div>
+        <div class="example-gallery">
+          <figure><div class="example-image-wrap"><img src="/docs/interview-map.svg" alt="BranchScript interview preparation tree with a question, prepared answer, follow-ups, and evidence" width="1280" height="760" loading="lazy" /></div><figcaption><span>INTERVIEW TREE</span><h3>Prepare the answer and the question after it.</h3><p>Keep recall-ready wording inside the answer box and branch likely follow-ups into evidence and trade-offs.</p><a class="text-link" href="/app/">Open the Tree playground →</a></figcaption></figure>
+          <figure><div class="example-image-wrap"><img src="/docs/algorithm-map.svg" alt="BranchScript binary search algorithm with conditions, operations, loops, and return values" width="1280" height="760" loading="lazy" /></div><figcaption><span>ALGORITHM + DATA</span><h3>Explain control flow beside changing state.</h3><p>Use named transitions for yes, no, and repeat paths; Live Run turns the diagram into a step-by-step explanation.</p><a class="text-link" href="/blog/algorithm-visualization.html">Read the algorithm guide →</a></figcaption></figure>
+        </div>
+      </section>
+
+      <section id="views" class="site-section section-block">
+        <div class="section-heading-site"><span class="site-eyebrow">SIX VISUAL LANGUAGES</span><h2>One idea, the right shape.</h2><p>Switch the view without switching tools. Each mode has layout and node behavior designed for its job.</p></div>
+        <div class="feature-grid"><article><span class="feature-index">01</span><h3>Thought trees</h3><p>Prepare interview answers, possible follow-ups, objections, and evidence as branches you can explore live.</p></article><article><span class="feature-index">02</span><h3>Process flows</h3><p>Map work from left to right with decisions, named transitions, loops, and clear outcomes.</p></article><article><span class="feature-index">03</span><h3>Neural maps</h3><p>Connect inputs to hidden concepts and outputs in a layered deep-learning inspired view.</p></article><article><span class="feature-index">04</span><h3>Logic playgrounds</h3><p>Walk through conditional paths in real time and test alternative branches before using them.</p></article><article><span class="feature-index">05</span><h3>Pseudocode algorithms</h3><p>Visualize functions, operations, conditions, loops, and return values as an executable learning path.</p></article><article><span class="feature-index">06</span><h3>Data structures</h3><p>See arrays, indexed items, stacks, queues, linked lists, records, and pointers as connected structures.</p></article></div>
+      </section>
+
+      <section id="install" class="site-section install-section">
+        <div class="section-heading-site"><span class="site-eyebrow">USE OR SELF-HOST</span><h2>Start in the browser. Install only if you want to.</h2><p>The hosted playground needs no account for local diagrams. Developers can run the public frontend from source or build the hardened static Nginx container.</p></div>
+        <div class="install-grid">
+          <article class="install-card featured"><div class="install-card-head"><span>Recommended</span><strong>Use the hosted app</strong></div><ol><li>Open the playground.</li><li>Choose a template.</li><li>Your first diagram saves locally in the browser.</li></ol><a class="site-button primary" href="/app/">Open BranchScript</a></article>
+          <article class="install-card"><div class="install-card-head"><span>Node.js 22+</span><strong>Run from source</strong></div><pre><code>git clone https://github.com/mitradeniz/mindful-tree-visualized-web.git
+cd mindful-tree-visualized-web
+npm ci
+npm run dev</code></pre><p>Open <code>http://127.0.0.1:5173/app/</code>. Run <code>npm run check</code> before contributing.</p></article>
+          <article class="install-card"><div class="install-card-head"><span>Docker</span><strong>Build the static app</strong></div><pre><code>git clone https://github.com/mitradeniz/mindful-tree-visualized-web.git
+cd mindful-tree-visualized-web
+docker build -t branchscript .
+docker run --rm -p 8080:8080 branchscript</code></pre><p>Open <code>http://127.0.0.1:8080/</code>. Production Compose can attach the same image to a reverse-proxy network.</p></article>
+        </div>
+        <div class="install-note"><strong>What works without the private backend?</strong><p>Editing, templates, Live Run, local saving, import, and export work independently. Email accounts and private cloud diagrams require the separately maintained backend service.</p><a href="https://github.com/mitradeniz/mindful-tree-visualized-web" rel="noreferrer">View source on GitHub →</a></div>
+      </section>
+
+      <section class="site-section reading-section"><div class="section-heading-site"><span class="site-eyebrow">FIELD NOTES</span><h2>Continue with a focused guide.</h2></div><div class="reading-grid"><a href="/blog/visual-thinking.html"><span>Visual thinking</span><h3>How to turn an unclear idea into a useful map</h3><p>A practical path from raw notes to decisions and next actions.</p></a><a href="/blog/brainstorming-maps.html"><span>Brainstorming</span><h3>Build idea maps that do more than collect sticky notes</h3><p>Use branches, constraints, and live paths to test an idea.</p></a><a href="/blog/algorithm-visualization.html"><span>Algorithms</span><h3>Visualize pseudocode and data structures together</h3><p>Make loops, state changes, and references easier to explain.</p></a></div></section>
+      <section class="site-section final-cta"><span class="site-eyebrow">YOUR NEXT IDEA IS ENOUGH</span><h2>Open a canvas and let it branch.</h2><p>No installation and no account required to begin. Your first project saves locally.</p><div class="hero-actions"><a class="site-button primary" href="/app/">Open BranchScript</a><a class="site-button secondary" href="/faq/">Read the FAQ</a></div></section>
+    </main>
+
+    <footer class="site-footer"><a class="site-brand" href="/"><img src="/branchscript-mark.svg" alt="" width="28" height="28" /><span>BranchScript</span></a><p>Part of Neuralith AI Studio. Built with an open TypeScript web stack.</p><nav><a href="#guide">Guide</a><a href="/blog/">Blog</a><a href="/faq/">FAQ</a><a href="/app/">Playground</a></nav></footer>
+  </body>
+</html>

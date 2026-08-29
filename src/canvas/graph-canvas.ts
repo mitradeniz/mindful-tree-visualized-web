@@ -1,0 +1,954 @@
+import { Graph, Node } from "@antv/x6";
+import { History } from "@antv/x6-plugin-history";
+import { Keyboard } from "@antv/x6-plugin-keyboard";
+import { MiniMap } from "@antv/x6-plugin-minimap";
+import { Selection } from "@antv/x6-plugin-selection";
+import type { LayoutDirection, Point } from "../app/app-store";
+import type { DiagramView, GraphDocument, GraphEdge, GraphNode, NodeKind } from "../domain/graph-document";
+import { t } from "../i18n";
+import { dataFields, dataItems } from "./data-structure";
+import { calculateLayout, sizeForNode } from "./layout";
+
+interface CanvasCallbacks {
+  onSelect: (nodeIds: string[]) => void;
+  onPositionsChange: (positions: Record<string, Point>) => void;
+  onQuickAdd: () => void;
+  onNodeEdit: (nodeId: string) => void;
+  onContextMenu: (request: { clientX: number; clientY: number; nodeId: string | null }) => void;
+}
+
+const nodeColors: Record<NodeKind, { fill: string; stroke: string; accent: string }> = {
+  topic: { fill: "#202b27", stroke: "#4f806f", accent: "#91b9aa" },
+  question: { fill: "#22292d", stroke: "#557682", accent: "#9eb5be" },
+  response: { fill: "#2c2922", stroke: "#8a744c", accent: "#c0ae88" },
+  followup: { fill: "#29262f", stroke: "#766786", accent: "#b1a4c0" },
+  note: { fill: "#292824", stroke: "#747168", accent: "#aaa79d" },
+  example: { fill: "#2d2529", stroke: "#80616e", accent: "#b99aa7" },
+  input: { fill: "#1f2b2a", stroke: "#4f7d77", accent: "#94b8b3" },
+  layer: { fill: "#22292f", stroke: "#596f83", accent: "#9fadb9" },
+  neuron: { fill: "#222832", stroke: "#5f7493", accent: "#a6b5ca" },
+  process: { fill: "#202a26", stroke: "#4d7565", accent: "#92b2a4" },
+  decision: { fill: "#2c2921", stroke: "#8a744b", accent: "#c0ae86" },
+  outcome: { fill: "#29252d", stroke: "#75627f", accent: "#ad9db5" },
+  output: { fill: "#29252e", stroke: "#725f80", accent: "#aa9ab8" },
+  start: { fill: "#1f2b28", stroke: "#4f806f", accent: "#91b9aa" },
+  function: { fill: "#22292f", stroke: "#59778a", accent: "#9fb5c1" },
+  operation: { fill: "#202a26", stroke: "#4d7565", accent: "#92b2a4" },
+  condition: { fill: "#2c2921", stroke: "#8a744b", accent: "#c0ae86" },
+  loop: { fill: "#29262f", stroke: "#766786", accent: "#b1a4c0" },
+  return: { fill: "#29252e", stroke: "#725f80", accent: "#aa9ab8" },
+  array: { fill: "#20282c", stroke: "#527481", accent: "#9bb4bd" },
+  item: { fill: "#252925", stroke: "#607760", accent: "#a4b5a4" },
+  stack: { fill: "#29262e", stroke: "#746484", accent: "#afa0bb" },
+  queue: { fill: "#2b2822", stroke: "#826f4c", accent: "#bdaa86" },
+  list: { fill: "#202a26", stroke: "#4d7565", accent: "#92b2a4" },
+  record: { fill: "#25292d", stroke: "#5c7082", accent: "#a0afba" },
+  pointer: { fill: "#2c2528", stroke: "#805e6b", accent: "#b99aa5" },
+};
+
+const dataKinds = new Set<NodeKind>(["array", "item", "stack", "queue", "list", "record", "pointer"]);
+
+const customNodeColors = {
+  green: { fill: "#202b27", stroke: "#4f806f", accent: "#91b9aa" },
+  blue: { fill: "#22292f", stroke: "#59778a", accent: "#9fb5c1" },
+  amber: { fill: "#2c2921", stroke: "#8a744b", accent: "#c0ae86" },
+  purple: { fill: "#29252f", stroke: "#766586", accent: "#afa0bd" },
+  red: { fill: "#2e2525", stroke: "#875f5a", accent: "#bd9a94" },
+  gray: { fill: "#282828", stroke: "#686868", accent: "#aaaaaa" },
+};
+
+function edgeColor(edge: GraphEdge, view: DiagramView): string {
+  if (edge.kind === "reference") return "#b88ed9";
+  if (view === "neural") return "#719ce6";
+  if (view === "logic") return "#d09b56";
+  if (view === "algorithm") return "#b5965f";
+  if (view === "data") return "#6f9f91";
+  if (view === "tree") return "#67a67b";
+  return "#718d7d";
+}
+
+function lightNodeFill(color: string): string {
+  if (document.documentElement.dataset.theme !== "light") return color;
+  const match = color.match(/^#([0-9a-f]{6})$/i);
+  const hex = match?.[1];
+  if (!hex) return color;
+  const value = Number.parseInt(hex, 16);
+  const red = (value >> 16) & 0xff;
+  const green = (value >> 8) & 0xff;
+  const blue = value & 0xff;
+  return `rgb(${red} ${green} ${blue} / 0.14)`;
+}
+
+function fitDataCellText(value: string, width: number, fontSize: number): string {
+  const limit = Math.max(3, Math.floor((width - 16) / (fontSize * 0.62)));
+  return value.length > limit ? `${value.slice(0, Math.max(1, limit - 1))}…` : value;
+}
+
+export class GraphCanvas {
+  private readonly graph: Graph;
+  private readonly history: History;
+  private readonly selection: Selection;
+  private readonly keyboard: Keyboard;
+  private document: GraphDocument | null = null;
+  private edgeVisibilityFrame: number | null = null;
+  private zoomFrame: number | null = null;
+  private pendingZoom: { scale: number; center: Point } | null = null;
+
+  constructor(
+    private readonly container: HTMLElement,
+    minimapContainer: HTMLElement,
+    private readonly callbacks: CanvasCallbacks,
+  ) {
+    this.graph = new Graph({
+      container: this.container,
+      autoResize: true,
+      background: { color: "transparent" },
+      preventDefaultDblClick: true,
+      virtual: true,
+      grid: {
+        visible: true,
+        type: "dot",
+        args: { color: "#385144", thickness: 1 },
+      },
+      panning: { enabled: true, eventTypes: ["leftMouseDown"] },
+      mousewheel: {
+        enabled: false,
+        modifiers: ["ctrl", "meta"],
+        factor: 1.05,
+        minScale: 0.01,
+        maxScale: 16,
+      },
+      interacting: {
+        edgeLabelMovable: false,
+        edgeMovable: false,
+        vertexMovable: false,
+        magnetConnectable: false,
+      },
+    });
+
+    this.history = new History({ enabled: true, stackSize: 80 });
+    this.selection = new Selection({
+      enabled: true,
+      multiple: true,
+      rubberband: true,
+      modifiers: ["meta"],
+      movable: true,
+      showNodeSelectionBox: true,
+      showEdgeSelectionBox: false,
+    });
+    this.keyboard = new Keyboard({ enabled: true, global: false });
+
+    this.graph.use(this.history);
+    this.graph.use(this.selection);
+    this.graph.use(this.keyboard);
+    this.graph.use(
+      new MiniMap({
+        container: minimapContainer,
+        width: 172,
+        height: 108,
+        padding: 12,
+      }),
+    );
+
+    this.container.addEventListener("wheel", this.onCanvasWheel, { passive: false });
+    this.graph.on("scale", this.scheduleEdgeVisibility);
+    this.graph.on("translate", this.scheduleEdgeVisibility);
+    this.graph.on("blank:dblclick", () => this.callbacks.onQuickAdd());
+    this.graph.on("node:dblclick", ({ e, node }) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.focusNode(node.id, false);
+      this.callbacks.onNodeEdit(node.id);
+      window.setTimeout(() => this.zoomToNode(node), 80);
+    });
+    this.graph.on("blank:contextmenu", ({ e }) => {
+      this.callbacks.onContextMenu({ clientX: e.clientX, clientY: e.clientY, nodeId: null });
+    });
+    this.graph.on("node:contextmenu", ({ e, node }) => {
+      this.focusNode(node.id, false);
+      this.callbacks.onContextMenu({ clientX: e.clientX, clientY: e.clientY, nodeId: node.id });
+    });
+    this.graph.on("node:moved", () => {
+      this.emitPositions();
+      this.scheduleEdgeVisibility();
+    });
+    this.selection.on("selection:changed", () => {
+      const nodeIds = this.selection
+        .getSelectedCells()
+        .filter((cell) => cell.isNode())
+        .map((cell) => cell.id);
+      this.callbacks.onSelect(nodeIds);
+    });
+    this.history.on("change", () => this.emitPositions());
+
+    this.keyboard.bindKey(["meta+z", "ctrl+z"], () => {
+      this.history.undo();
+      return false;
+    });
+    this.keyboard.bindKey(["meta+shift+z", "ctrl+shift+z"], () => {
+      this.history.redo();
+      return false;
+    });
+  }
+
+  render(
+    document: GraphDocument,
+    direction: LayoutDirection,
+    savedPositions: Record<string, Point>,
+    forceLayout = false,
+  ): Record<string, Point> {
+    this.document = document;
+    this.container.dataset.nodeCount = String(document.nodes.length);
+    const automaticPositions = calculateLayout(document, direction);
+    const positions = forceLayout
+      ? automaticPositions
+      : Object.fromEntries(
+          document.nodes.map((node) => [
+            node.id,
+            savedPositions[node.id] ?? automaticPositions[node.id] ?? { x: 0, y: 0 },
+          ]),
+        );
+
+    this.history.disable();
+    this.graph.clearCells();
+
+    for (const node of document.nodes) {
+      const position = positions[node.id] ?? { x: 0, y: 0 };
+      this.graph.addNode(this.nodeMetadata(node, position));
+    }
+
+    const nodeIds = new Set(document.nodes.map((node) => node.id));
+
+    for (const edge of document.edges) {
+      if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) continue;
+      const smooth = document.view === "tree" || document.view === "neural";
+      this.graph.addEdge({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        zIndex: 0,
+        ...(smooth ? {} : { router: { name: "orth", args: { padding: 24 } } }),
+        connector: smooth
+          ? { name: "smooth" }
+          : { name: "rounded", args: { radius: 12 } },
+        ...(edge.label
+          ? {
+              labels: [
+                {
+                  position: 0.55,
+                  attrs: {
+                    body: {
+                      fill: "#162019",
+                      stroke: edgeColor(edge, document.view),
+                      strokeWidth: 1,
+                      rx: 8,
+                      ry: 8,
+                    },
+                    label: {
+                      text: edge.label,
+                      fill: "#eaf3ec",
+                      fontSize: 10,
+                      fontWeight: 700,
+                    },
+                  },
+                },
+              ],
+            }
+          : {}),
+        attrs: {
+          line: {
+            class: "branchscript-edge-line",
+            stroke: edgeColor(edge, document.view),
+            strokeWidth: document.view === "neural" ? 1.4 : edge.kind === "reference" ? 1.5 : 2,
+            opacity: document.view === "neural" ? 0.82 : 1,
+            strokeDasharray: edge.kind === "reference" ? "6 5" : "",
+            targetMarker: { name: "block", width: 8, height: 7 },
+          },
+        },
+      });
+    }
+
+    this.scheduleEdgeVisibility();
+
+    this.history.clean();
+    this.history.enable();
+    return positions;
+  }
+
+  private nodeMetadata(node: GraphNode, position: Point): Node.Metadata {
+    if (dataKinds.has(node.kind) && !node.shape) return this.dataMetadata(node, position);
+    const shape = node.shape ?? (node.kind === "decision" || node.kind === "condition" ? "diamond" : node.kind === "neuron" ? "circle" : node.kind === "input" || node.kind === "output" || node.kind === "start" || node.kind === "return" ? "pill" : "card");
+    if (shape === "diamond") return this.decisionMetadata(node, position);
+    if (shape === "circle") return this.neuronMetadata(node, position);
+
+    const colors = node.color ? customNodeColors[node.color] : nodeColors[node.kind];
+    const size = sizeForNode(node);
+    const pill = shape === "pill";
+    const rich = Boolean(node.text || node.answer || node.feature);
+    const markup: Node.Metadata["markup"] = [
+      { tagName: "rect", selector: "body" },
+      { tagName: "rect", selector: "accent" },
+      { tagName: "text", selector: "kind" },
+      { tagName: "text", selector: "label" },
+    ];
+    const attrs: NonNullable<Node.Metadata["attrs"]> = {
+      body: {
+        class: "branchscript-node-body",
+        width: size.width,
+        height: size.height,
+          rx: pill && !rich ? size.height / 2 : 15,
+          ry: pill && !rich ? size.height / 2 : 15,
+        fill: lightNodeFill(colors.fill),
+        stroke: colors.stroke,
+        strokeWidth: node.priority === "high" ? 2.5 : 1.5,
+      },
+      accent: {
+        x: 0,
+        y: 0,
+        width: 6,
+        height: size.height,
+        rx: 3,
+        fill: colors.stroke,
+        stroke: "none",
+      },
+      kind: {
+        text: this.nodeCaption(node),
+        x: 20,
+        y: 24,
+        refX: 0,
+        refY: 0,
+        fill: colors.accent,
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: 1.1,
+        textAnchor: "start",
+      },
+      label: {
+        text: node.label,
+        x: 20,
+        y: 44,
+        refX: 0,
+        refY: 0,
+        fill: "#f5f8f5",
+        fontSize: 14,
+        fontWeight: 650,
+        textAnchor: "start",
+        textVerticalAnchor: "top",
+        textWrap: {
+          width: size.width - 40,
+          height: rich ? 40 : size.height - 56,
+          ellipsis: true,
+        },
+      },
+    };
+    let cursor = 90;
+    const addContent = (selector: "text" | "answer", value: string, height: number) => {
+      markup.push(
+        { tagName: "text", selector: `${selector}Caption` },
+        { tagName: "text", selector },
+      );
+      attrs[`${selector}Caption`] = {
+        text: this.contentCaption(selector),
+        x: 20,
+        y: cursor,
+        refX: 0,
+        refY: 0,
+        fill: colors.accent,
+        opacity: 0.8,
+        fontSize: 8,
+        fontWeight: 800,
+        letterSpacing: 1,
+        textAnchor: "start",
+      };
+      attrs[selector] = {
+        text: value,
+        x: 20,
+        y: cursor + 15,
+        refX: 0,
+        refY: 0,
+        fill: selector === "answer" ? "#e7f5ef" : "#c7cfca",
+        fontSize: selector === "answer" ? 11 : 10,
+        fontWeight: selector === "answer" ? 600 : 450,
+        textAnchor: "start",
+        textVerticalAnchor: "top",
+        textWrap: { width: size.width - 40, height: height - 16, ellipsis: true },
+      };
+      cursor += height;
+    };
+    if (node.text) addContent("text", node.text, 50);
+    if (node.answer) addContent("answer", node.answer, 64);
+    if (node.feature) {
+      markup.push({ tagName: "rect", selector: "featureBody" }, { tagName: "text", selector: "feature" });
+      attrs.featureBody = {
+        x: 16,
+        y: size.height - 31,
+        width: size.width - 32,
+        height: 20,
+        rx: 6,
+        ry: 6,
+        fill: colors.stroke,
+        opacity: 0.16,
+        stroke: colors.stroke,
+        strokeWidth: 1,
+      };
+      attrs.feature = {
+        text: `${this.featureCaption()} · ${node.feature}`,
+        x: 25,
+        y: size.height - 17,
+        refX: 0,
+        refY: 0,
+        fill: colors.accent,
+        fontSize: 8,
+        fontWeight: 750,
+        letterSpacing: 0.45,
+        textAnchor: "start",
+        textWrap: { width: size.width - 50, height: 14, ellipsis: true },
+      };
+    }
+    return {
+      id: node.id,
+      x: position.x,
+      y: position.y,
+      width: size.width,
+      height: size.height,
+      zIndex: 2,
+      data: { kind: node.kind, label: node.label },
+      markup,
+      attrs,
+    };
+  }
+
+  private decisionMetadata(node: GraphNode, position: Point): Node.Metadata {
+    const colors = node.color ? customNodeColors[node.color] : nodeColors[node.kind];
+    const size = sizeForNode(node);
+    const detail = node.answer ?? node.text;
+    const markup: Node.Metadata["markup"] = [
+      { tagName: "polygon", selector: "body" },
+      { tagName: "text", selector: "kind" },
+      { tagName: "text", selector: "label" },
+    ];
+    if (detail) markup.push({ tagName: "text", selector: "detail" });
+    if (node.feature) markup.push({ tagName: "text", selector: "feature" });
+    return {
+      id: node.id,
+      x: position.x,
+      y: position.y,
+      width: size.width,
+      height: size.height,
+      zIndex: 2,
+      data: { kind: node.kind, label: node.label },
+      markup,
+      attrs: {
+        body: {
+          class: "branchscript-node-body",
+          points: `${size.width / 2},2 ${size.width - 2},${size.height / 2} ${size.width / 2},${size.height - 2} 2,${size.height / 2}`,
+          fill: lightNodeFill(colors.fill),
+          stroke: colors.stroke,
+          strokeWidth: node.priority === "high" ? 2.5 : 1.6,
+          strokeLinejoin: "round",
+        },
+        kind: {
+          text: this.nodeCaption(node),
+          x: size.width / 2,
+          y: detail ? 39 : 43,
+          refX: 0,
+          refY: 0,
+          fill: colors.accent,
+          fontSize: 9,
+          fontWeight: 800,
+          letterSpacing: 1.1,
+          textAnchor: "middle",
+        },
+        label: {
+          text: node.label,
+          x: size.width / 2,
+          y: detail ? size.height / 2 - 12 : size.height / 2 + 7,
+          refX: 0,
+          refY: 0,
+          fill: "#f7f2e8",
+          fontSize: 13,
+          fontWeight: 650,
+          textAnchor: "middle",
+          textVerticalAnchor: "middle",
+          textWrap: { width: size.width - 74, height: detail ? 38 : 54, ellipsis: true },
+        },
+        detail: {
+          text: detail,
+          x: size.width / 2,
+          y: size.height / 2 + 24,
+          refX: 0,
+          refY: 0,
+          fill: node.answer ? "#fff3d6" : "#d1c8b5",
+          fontSize: 9,
+          fontWeight: node.answer ? 620 : 450,
+          textAnchor: "middle",
+          textVerticalAnchor: "middle",
+          textWrap: { width: size.width - 106, height: 38, ellipsis: true },
+        },
+        feature: {
+          text: node.feature ? `${this.featureCaption()} · ${node.feature}` : "",
+          x: size.width / 2,
+          y: size.height - 29,
+          refX: 0,
+          refY: 0,
+          fill: colors.accent,
+          fontSize: 7,
+          fontWeight: 800,
+          letterSpacing: 0.4,
+          textAnchor: "middle",
+          textWrap: { width: size.width - 118, height: 12, ellipsis: true },
+        },
+      },
+    };
+  }
+
+  private neuronMetadata(node: GraphNode, position: Point): Node.Metadata {
+    const colors = node.color ? customNodeColors[node.color] : nodeColors[node.kind];
+    const size = sizeForNode(node);
+    const detail = node.answer ?? node.text;
+    const markup: Node.Metadata["markup"] = [
+      { tagName: "circle", selector: "body" },
+      { tagName: "circle", selector: "halo" },
+      { tagName: "text", selector: "kind" },
+      { tagName: "text", selector: "label" },
+    ];
+    if (detail) markup.push({ tagName: "text", selector: "detail" });
+    if (node.feature) markup.push({ tagName: "text", selector: "feature" });
+    return {
+      id: node.id,
+      x: position.x,
+      y: position.y,
+      width: size.width,
+      height: size.height,
+      zIndex: 2,
+      data: { kind: node.kind, label: node.label },
+      markup,
+      attrs: {
+        halo: {
+          cx: size.width / 2,
+          cy: size.height / 2,
+          r: size.width / 2 - 2,
+          fill: "none",
+          stroke: colors.stroke,
+          strokeWidth: 1,
+          strokeOpacity: 0.28,
+        },
+        body: {
+          class: "branchscript-node-body",
+          cx: size.width / 2,
+          cy: size.height / 2,
+          r: size.width / 2 - 9,
+          fill: lightNodeFill(colors.fill),
+          stroke: colors.stroke,
+          strokeWidth: 2,
+        },
+        kind: {
+          text: this.nodeCaption(node),
+          x: size.width / 2,
+          y: 43,
+          refX: 0,
+          refY: 0,
+          fill: colors.accent,
+          fontSize: 8,
+          fontWeight: 800,
+          letterSpacing: 1,
+          textAnchor: "middle",
+        },
+        label: {
+          text: node.label,
+          x: size.width / 2,
+          y: detail ? size.height / 2 - 2 : size.height / 2 + 11,
+          refX: 0,
+          refY: 0,
+          fill: "#f2f6ff",
+          fontSize: 11,
+          fontWeight: 650,
+          textAnchor: "middle",
+          textVerticalAnchor: "middle",
+          textWrap: { width: size.width - 32, height: detail ? 30 : 42, ellipsis: true },
+        },
+        detail: {
+          text: detail,
+          x: size.width / 2,
+          y: size.height / 2 + 29,
+          refX: 0,
+          refY: 0,
+          fill: "#c7d7e9",
+          fontSize: 8,
+          fontWeight: node.answer ? 620 : 450,
+          textAnchor: "middle",
+          textVerticalAnchor: "middle",
+          textWrap: { width: size.width - 42, height: 34, ellipsis: true },
+        },
+        feature: {
+          text: node.feature ?? "",
+          x: size.width / 2,
+          y: size.height - 25,
+          refX: 0,
+          refY: 0,
+          fill: colors.accent,
+          fontSize: 7,
+          fontWeight: 800,
+          textAnchor: "middle",
+          textWrap: { width: size.width - 50, height: 11, ellipsis: true },
+        },
+      },
+    };
+  }
+
+  private dataMetadata(node: GraphNode, position: Point): Node.Metadata {
+    const colors = node.color ? customNodeColors[node.color] : nodeColors[node.kind];
+    const size = sizeForNode(node);
+    const isContainer = ["array", "stack", "queue", "list"].includes(node.kind);
+    const isRecord = node.kind === "record";
+    const cells = isContainer ? dataItems(node) : [];
+    const fields = isRecord ? dataFields(node) : [];
+    const detail = node.answer ?? node.text;
+    const markup: Node.Metadata["markup"] = [
+      { tagName: "rect", selector: "body" },
+      { tagName: "text", selector: "kind" },
+      { tagName: "text", selector: "label" },
+    ];
+    const values = [...cells, ...fields];
+    values.forEach((_, index) => {
+      markup.push(
+        { tagName: "rect", selector: `dataCell${index}` },
+        { tagName: "text", selector: `dataCellLabel${index}` },
+      );
+    });
+    if (detail) markup.push({ tagName: "text", selector: "detail" });
+    if (node.feature) markup.push({ tagName: "text", selector: "feature" });
+    const vertical = node.kind === "stack";
+    const attrs: NonNullable<Node.Metadata["attrs"]> = {
+      body: {
+        class: "branchscript-node-body",
+        width: size.width,
+        height: size.height,
+        rx: node.kind === "pointer" ? size.height / 2 : 12,
+        ry: node.kind === "pointer" ? size.height / 2 : 12,
+        fill: lightNodeFill(colors.fill),
+        stroke: colors.stroke,
+        strokeWidth: node.priority === "high" ? 2.5 : 1.5,
+      },
+      kind: {
+        text: this.nodeCaption(node), x: 14, y: 22, fill: colors.accent,
+        refX: 0, refY: 0,
+        fontSize: 9, fontWeight: 800, letterSpacing: 1, textAnchor: "start",
+      },
+      label: {
+        text: node.label, x: 14, y: 43,
+        refX: 0, refY: 0,
+        fill: "#f2f6f3", fontSize: 12, fontWeight: 620, textAnchor: "start",
+        textWrap: { width: size.width - 28, height: 20, ellipsis: true },
+      },
+    };
+
+    values.forEach((value, index) => {
+      const horizontal = !vertical && isContainer;
+      const count = Math.max(values.length, 1);
+      const cellWidth = (size.width - 24) / count;
+      const x = horizontal ? 12 + index * cellWidth : 12;
+      const y = horizontal ? 57 : isRecord ? 57 + index * 22 : 53 + index * 22;
+      const width = horizontal ? cellWidth : size.width - 24;
+      const height = horizontal ? 34 : 22;
+      attrs[`dataCell${index}`] = {
+        x, y, width, height,
+        fill: colors.stroke,
+        fillOpacity: 0.13,
+        stroke: colors.stroke,
+        strokeWidth: 1,
+        strokeOpacity: 0.48,
+        rx: 4,
+        ry: 4,
+      };
+      const fontSize = horizontal ? 10 : 9;
+      attrs[`dataCellLabel${index}`] = {
+        text: fitDataCellText(value, width, fontSize),
+        x: horizontal ? x + width / 2 : x + 9,
+        y: horizontal ? y + 21 : y + 15,
+        refX: 0,
+        refY: 0,
+        fill: colors.accent,
+        fontSize,
+        fontWeight: 700,
+        textAnchor: horizontal ? "middle" : "start",
+      };
+    });
+
+    const detailY = isRecord
+      ? 65 + fields.length * 22
+      : vertical
+        ? 61 + cells.length * 22
+        : isContainer
+          ? 105
+          : 62;
+    if (detail) {
+      const detailBottom = node.feature ? size.height - 34 : size.height - 14;
+      attrs.detail = {
+        text: detail,
+        x: 14,
+        y: detailY,
+        refX: 0,
+        refY: 0,
+        fill: "#c7d2cc",
+        fontSize: 9,
+        fontWeight: node.answer ? 620 : 450,
+        textAnchor: "start",
+        textVerticalAnchor: "top",
+        textWrap: { width: size.width - 28, height: Math.max(18, detailBottom - detailY), ellipsis: true },
+      };
+    }
+    if (node.feature) {
+      attrs.feature = {
+        text: `${this.featureCaption()} · ${node.feature}`,
+        x: 14,
+        y: size.height - 14,
+        refX: 0,
+        refY: 0,
+        fill: colors.accent,
+        fontSize: 7,
+        fontWeight: 800,
+        textAnchor: "start",
+        textWrap: { width: size.width - 28, height: 11, ellipsis: true },
+      };
+    }
+
+    return {
+      id: node.id,
+      x: position.x,
+      y: position.y,
+      width: size.width,
+      height: size.height,
+      zIndex: 2,
+      data: { kind: node.kind, label: node.label },
+      markup,
+      attrs,
+    };
+  }
+
+  private nodeCaption(node: GraphNode): string {
+    return node.status ? `${node.kind} · ${node.status}`.toUpperCase() : node.kind.toUpperCase();
+  }
+
+  private contentCaption(selector: "text" | "answer"): string {
+    if (selector === "answer") return t("Prepared answer").toLocaleUpperCase();
+    const label = {
+      tree: "Context",
+      flow: "Step detail",
+      neural: "Signal",
+      logic: "Rule",
+      algorithm: "Pseudocode",
+      data: "Value",
+    }[this.document?.view ?? "tree"];
+    return t(label).toLocaleUpperCase();
+  }
+
+  private featureCaption(): string {
+    const label = {
+      tree: "Follow-up cue",
+      flow: "Expected result",
+      neural: "Activation",
+      logic: "Branch rule",
+      algorithm: "Complexity",
+      data: "Operation",
+    }[this.document?.view ?? "tree"];
+    return t(label).toLocaleUpperCase();
+  }
+
+  focusNode(nodeId: string, center = true): void {
+    const cell = this.graph.getCellById(nodeId);
+    if (!(cell instanceof Node)) return;
+    this.selection.clean();
+    this.selection.select(cell);
+    if (center) this.graph.centerCell(cell);
+  }
+
+  private zoomToNode(node: Node): void {
+    this.pendingZoom = null;
+    if (this.zoomFrame !== null) {
+      window.cancelAnimationFrame(this.zoomFrame);
+      this.zoomFrame = null;
+    }
+
+    const overlay = this.container.parentElement?.querySelector<HTMLElement>(".quick-builder:not([hidden])");
+    const canvasBounds = this.container.getBoundingClientRect();
+    const overlayBounds = overlay?.getBoundingClientRect();
+    const coveredWidth = overlayBounds
+      ? Math.max(0, canvasBounds.right - Math.max(canvasBounds.left, overlayBounds.left))
+      : 0;
+    const branchingView = this.document?.view === "logic" || this.document?.view === "algorithm";
+
+    if (branchingView) {
+      const neighborhood = [node, ...this.graph.getNeighbors(node).filter((cell): cell is Node => cell instanceof Node)];
+      const bounds = this.graph.getCellsBBox(neighborhood);
+      if (bounds) {
+        this.graph.zoomToRect(bounds, {
+          padding: 42,
+          minScale: 0.01,
+          maxScale: 1.15,
+          viewportArea: {
+            x: 0,
+            y: 0,
+            width: Math.max(220, canvasBounds.width - coveredWidth),
+            height: canvasBounds.height,
+          },
+        });
+      }
+    } else {
+      const targetScale = 1.25;
+      this.graph.scale(targetScale, targetScale);
+      this.graph.centerCell(node);
+    }
+
+    if (coveredWidth > 0) {
+      this.graph.translateBy(-coveredWidth / 2, 0);
+    }
+    this.scheduleEdgeVisibility();
+  }
+
+  applySearch(query: string): void {
+    if (!this.document) return;
+    const normalized = query.trim().toLocaleLowerCase();
+    for (const node of this.document.nodes) {
+      const cell = this.graph.getCellById(node.id);
+      if (!(cell instanceof Node)) continue;
+      const matches =
+        normalized.length === 0 ||
+        node.id.toLocaleLowerCase().includes(normalized) ||
+        node.label.toLocaleLowerCase().includes(normalized) ||
+        node.tags.some((tag) => tag.toLocaleLowerCase().includes(normalized));
+      cell.attr("body/opacity", matches ? 1 : 0.24);
+      cell.attr("accent/opacity", matches ? 1 : 0.24);
+      cell.attr("kind/opacity", matches ? 1 : 0.3);
+      cell.attr("label/opacity", matches ? 1 : 0.3);
+    }
+  }
+
+  highlightPath(path: string[]): void {
+    if (!this.document) return;
+    const pathSet = new Set(path);
+    const activeId = path.at(-1);
+    const pairs = new Set(path.slice(1).map((target, index) => `${path[index]}:${target}`));
+    const hasPath = path.length > 0;
+
+    for (const node of this.document.nodes) {
+      const cell = this.graph.getCellById(node.id);
+      if (!(cell instanceof Node)) continue;
+      const visible = !hasPath || pathSet.has(node.id);
+      const active = node.id === activeId;
+      for (const selector of ["body", "accent", "halo", "kind", "label"]) {
+        cell.attr(`${selector}/opacity`, visible ? 1 : 0.14);
+      }
+      cell.attr("body/strokeWidth", active ? 4 : pathSet.has(node.id) ? 2.5 : 1.4);
+      cell.attr("body/class", active ? "branchscript-node-body live-active-node" : "branchscript-node-body");
+    }
+
+    for (const edge of this.document.edges) {
+      const cell = this.graph.getCellById(edge.id);
+      if (!cell?.isEdge()) continue;
+      const active = pairs.has(`${edge.source}:${edge.target}`);
+      cell.attr("line/opacity", !hasPath ? (this.document.view === "neural" ? 0.82 : 1) : active ? 1 : 0.1);
+      cell.attr("line/strokeWidth", active ? 3.4 : this.document.view === "neural" ? 1.4 : 2);
+      cell.attr("line/class", active ? "branchscript-edge-line live-active-edge" : "branchscript-edge-line");
+    }
+  }
+
+  clearHighlight(): void {
+    this.highlightPath([]);
+  }
+
+  private readonly scheduleEdgeVisibility = (): void => {
+    if (this.edgeVisibilityFrame !== null) return;
+    this.edgeVisibilityFrame = window.requestAnimationFrame(() => {
+      this.edgeVisibilityFrame = null;
+      this.updateEdgeVisibility();
+    });
+  };
+
+  private readonly updateEdgeVisibility = (): void => {
+    if (!this.document) return;
+
+    const viewport = this.graph.getGraphArea();
+    for (const edge of this.document.edges) {
+      const cell = this.graph.getCellById(edge.id);
+      const source = this.graph.getCellById(edge.source);
+      const target = this.graph.getCellById(edge.target);
+      if (!cell?.isEdge() || !(source instanceof Node) || !(target instanceof Node)) continue;
+
+      const endpointsVisible = Boolean(
+        viewport.intersectsWithRect(source.getBBox()) && viewport.intersectsWithRect(target.getBBox()),
+      );
+      if (cell.isVisible() !== endpointsVisible) cell.setVisible(endpointsVisible);
+    }
+  };
+
+  setLiveView(view: DiagramView | null): void {
+    if (view) this.container.dataset.liveView = view;
+    else delete this.container.dataset.liveView;
+  }
+
+  fit(): void {
+    this.graph.zoomToFit({ padding: 48, minScale: 0.01, maxScale: 1.05 });
+    this.graph.centerContent();
+  }
+
+  undo(): void {
+    this.history.undo();
+  }
+
+  redo(): void {
+    this.history.redo();
+  }
+
+  getPositions(): Record<string, Point> {
+    return Object.fromEntries(
+      this.graph.getNodes().map((node) => {
+        const position = node.position();
+        return [node.id, { x: position.x, y: position.y }];
+      }),
+    );
+  }
+
+  private emitPositions(): void {
+    this.callbacks.onPositionsChange(this.getPositions());
+  }
+
+  private readonly onCanvasWheel = (event: WheelEvent): void => {
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const currentScale = this.pendingZoom?.scale ?? this.graph.zoom();
+      const direction = event.deltaY < 0 ? 1 : event.deltaY > 0 ? -1 : 0;
+      if (direction === 0) return;
+
+      const targetScale = Math.max(0.01, Math.min(16, currentScale * 1.05 ** direction));
+      if (targetScale === currentScale) return;
+
+      this.pendingZoom = {
+        scale: targetScale,
+        center: this.graph.clientToGraph({ x: event.clientX, y: event.clientY }),
+      };
+      if (this.zoomFrame === null) this.zoomFrame = window.requestAnimationFrame(this.applyPendingZoom);
+      return;
+    }
+
+    event.preventDefault();
+    this.graph.translateBy(-event.deltaX, -event.deltaY);
+  };
+
+  dispose(): void {
+    this.container.removeEventListener("wheel", this.onCanvasWheel);
+    if (this.edgeVisibilityFrame !== null) window.cancelAnimationFrame(this.edgeVisibilityFrame);
+    if (this.zoomFrame !== null) window.cancelAnimationFrame(this.zoomFrame);
+    this.graph.dispose();
+  }
+
+  private readonly applyPendingZoom = (): void => {
+    this.zoomFrame = null;
+    const pendingZoom = this.pendingZoom;
+    this.pendingZoom = null;
+    if (!pendingZoom) return;
+    this.graph.zoom(pendingZoom.scale, { absolute: true, center: pendingZoom.center });
+  };
+}
