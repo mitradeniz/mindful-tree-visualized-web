@@ -7,7 +7,7 @@ export default defineConfig({
       fileName: "licenses.md",
     },
     sourcemap: false,
-    rollupOptions: {
+    rolldownOptions: {
       input: {
         root: resolve(import.meta.dirname, "index.html"),
         app: resolve(import.meta.dirname, "app/index.html"),
