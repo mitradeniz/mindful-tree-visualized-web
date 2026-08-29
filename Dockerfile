@@ -13,6 +13,7 @@ COPY blog ./blog
 COPY faq ./faq
 COPY public ./public
 COPY examples ./examples
+COPY scripts ./scripts
 COPY src ./src
 
 RUN npm run build \
