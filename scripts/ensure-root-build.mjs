@@ -1,10 +1,14 @@
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
+import { resolve } from "node:path";
+import process from "node:process";
 import { URL } from "node:url";
 
 import { build } from "vite";
 
 const rootOutput = new URL("../dist/index.html", import.meta.url);
+const projectRoot = process.cwd();
+const landingEntry = resolve(projectRoot, "index.html");
 
 async function outputExists() {
   try {
@@ -18,9 +22,14 @@ async function outputExists() {
 if (!(await outputExists())) {
   await build({
     configFile: false,
+    root: projectRoot,
+    input: landingEntry,
     build: {
       emptyOutDir: false,
       outDir: "dist",
+      rolldownOptions: {
+        input: landingEntry,
+      },
       sourcemap: false,
     },
   });
