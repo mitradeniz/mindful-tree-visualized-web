@@ -6,6 +6,12 @@ const nginx = readFileSync("deploy/nginx/default.conf", "utf8");
 const dockerfile = readFileSync("Dockerfile", "utf8");
 const compose = readFileSync("compose.yaml", "utf8");
 const vite = readFileSync("vite.config.ts", "utf8");
+const runtimeStyleHashes = [
+  "'sha256-M7OVxilx/0zLfMNXY4uV4vUxjLHBR9ceOhHeoeTEimc='",
+  "'sha256-VkxowOVAlzxuSf/1AbtEFLdncjkOHvgEaOPGs9/N+2w='",
+  "'sha256-zRr3MHZWdSLA6S7e7RwgGuvkMXplwpky+M34BjMg+CY='",
+  "'sha256-XgnsdlP2Xq/ORpXe5zkM4gK0ugr4FNo7yqQgK+KmZQM='",
+];
 
 function csp(): string {
   const match = /add_header Content-Security-Policy "([^"]+)" always;/.exec(nginx);
@@ -26,12 +32,20 @@ describe("production security configuration", () => {
     const policy = csp();
     expect(policy).toContain("default-src 'self'");
     expect(policy).toContain("script-src-attr 'none'");
+    expect(policy).toContain("style-src-attr 'unsafe-inline'");
     expect(policy).toContain("frame-ancestors 'none'");
     expect(policy).toContain("object-src 'none'");
     expect(policy).toContain("base-uri 'none'");
     expect(policy).toContain("form-action 'none'");
     expect(policy).toContain("upgrade-insecure-requests");
     expect(policy).not.toMatch(/script-src[^;]*'unsafe-(inline|eval)'/);
+  });
+
+  it("allows only the pinned runtime style modules", () => {
+    const styleSource = /(?:^|;\s*)style-src ([^;]+)/.exec(csp())?.[1];
+    expect(styleSource).toBeDefined();
+    expect(styleSource).not.toContain("'unsafe-inline'");
+    for (const hash of runtimeStyleHashes) expect(styleSource).toContain(hash);
   });
 
   it("allows only the exact structured-data blocks by hash", () => {
