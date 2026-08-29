@@ -9,7 +9,7 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       input: {
-        home: resolve(import.meta.dirname, "index.html"),
+        index: resolve(import.meta.dirname, "index.html"),
         app: resolve(import.meta.dirname, "app/index.html"),
         blog: resolve(import.meta.dirname, "blog/index.html"),
         visualThinking: resolve(import.meta.dirname, "blog/visual-thinking.html"),
