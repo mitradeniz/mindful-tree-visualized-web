@@ -15,6 +15,14 @@ COPY public ./public
 COPY examples ./examples
 COPY src ./src
 
+RUN echo "Docker source fingerprint" \
+    && sha256sum /app/index.html \
+        /app/app/index.html \
+        /app/vite.config.ts \
+        /app/src/landing.ts \
+    && grep -n 'src="/src/' /app/index.html /app/app/index.html \
+    && sed -n '1,20p' /app/src/landing.ts
+
 RUN npm run build \
     && test -f dist/index.html
 
