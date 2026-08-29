@@ -18,7 +18,13 @@ interface CanvasCallbacks {
   onContextMenu: (request: { clientX: number; clientY: number; nodeId: string | null }) => void;
 }
 
-const nodeColors: Record<NodeKind, { fill: string; stroke: string; accent: string }> = {
+interface NodePalette {
+  fill: string;
+  stroke: string;
+  accent: string;
+}
+
+const nodeColors: Record<NodeKind, NodePalette> = {
   topic: { fill: "#202b27", stroke: "#4f806f", accent: "#91b9aa" },
   question: { fill: "#22292d", stroke: "#557682", accent: "#9eb5be" },
   response: { fill: "#2c2922", stroke: "#8a744c", accent: "#c0ae88" },
@@ -71,8 +77,7 @@ function edgeColor(edge: GraphEdge, view: DiagramView): string {
   return "#718d7d";
 }
 
-function lightNodeFill(color: string): string {
-  if (document.documentElement.dataset.theme !== "light") return color;
+function translucentColor(color: string, opacity: number): string {
   const match = color.match(/^#([0-9a-f]{6})$/i);
   const hex = match?.[1];
   if (!hex) return color;
@@ -80,7 +85,12 @@ function lightNodeFill(color: string): string {
   const red = (value >> 16) & 0xff;
   const green = (value >> 8) & 0xff;
   const blue = value & 0xff;
-  return `rgb(${red} ${green} ${blue} / 0.14)`;
+  return `rgb(${red} ${green} ${blue} / ${opacity})`;
+}
+
+function nodeFill(colors: NodePalette): string {
+  if (document.documentElement.dataset.theme !== "light") return colors.fill;
+  return translucentColor(colors.stroke, 0.16);
 }
 
 function fitDataCellText(value: string, width: number, fontSize: number): string {
@@ -431,6 +441,16 @@ export class GraphCanvas {
     return positions;
   }
 
+  refreshTheme(): void {
+    if (!this.document) return;
+    for (const sourceNode of this.document.nodes) {
+      const cell = this.graph.getCellById(sourceNode.id);
+      if (!(cell instanceof Node)) continue;
+      const attrs = this.nodeMetadata(sourceNode, cell.position()).attrs;
+      if (attrs) cell.setAttrs(attrs);
+    }
+  }
+
   private nodeMetadata(node: GraphNode, position: Point): Node.Metadata {
     if (dataKinds.has(node.kind) && !node.shape) return this.dataMetadata(node, position);
     const shape = node.shape ?? (node.kind === "decision" || node.kind === "condition" ? "diamond" : node.kind === "neuron" ? "circle" : node.kind === "input" || node.kind === "output" || node.kind === "start" || node.kind === "return" ? "pill" : "card");
@@ -454,7 +474,7 @@ export class GraphCanvas {
         height: size.height,
           rx: pill && !rich ? size.height / 2 : 15,
           ry: pill && !rich ? size.height / 2 : 15,
-        fill: lightNodeFill(colors.fill),
+        fill: nodeFill(colors),
         stroke: colors.stroke,
         strokeWidth: node.priority === "high" ? 2.5 : 1.5,
       },
@@ -598,7 +618,7 @@ export class GraphCanvas {
         body: {
           class: "branchscript-node-body",
           points: `${size.width / 2},2 ${size.width - 2},${size.height / 2} ${size.width / 2},${size.height - 2} 2,${size.height / 2}`,
-          fill: lightNodeFill(colors.fill),
+          fill: nodeFill(colors),
           stroke: colors.stroke,
           strokeWidth: node.priority === "high" ? 2.5 : 1.6,
           strokeLinejoin: "round",
@@ -694,7 +714,7 @@ export class GraphCanvas {
           cx: size.width / 2,
           cy: size.height / 2,
           r: size.width / 2 - 9,
-          fill: lightNodeFill(colors.fill),
+          fill: nodeFill(colors),
           stroke: colors.stroke,
           strokeWidth: 2,
         },
@@ -782,7 +802,7 @@ export class GraphCanvas {
         height: size.height,
         rx: node.kind === "pointer" ? size.height / 2 : 12,
         ry: node.kind === "pointer" ? size.height / 2 : 12,
-        fill: lightNodeFill(colors.fill),
+        fill: nodeFill(colors),
         stroke: colors.stroke,
         strokeWidth: node.priority === "high" ? 2.5 : 1.5,
       },

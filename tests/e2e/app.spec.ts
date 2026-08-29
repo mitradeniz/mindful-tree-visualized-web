@@ -453,11 +453,15 @@ test("uses translucent color surfaces for controls and graph nodes in light mode
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await page.waitForTimeout(200);
   const cardBackground = await page.locator(".preset-card").first().evaluate((element) => getComputedStyle(element).backgroundColor);
-  const nodeFill = await page.locator(".branchscript-node-body").first().evaluate((element) => getComputedStyle(element).fill);
+  const nodeFills = await page
+    .locator(".branchscript-node-body")
+    .evaluateAll((elements) => elements.map((element) => getComputedStyle(element).fill));
 
   expect(cardBackground).toMatch(/(?:rgba\(.*0\.|\/\s*0\.)/);
-  expect(nodeFill).toMatch(/(?:rgba\(.*0\.|\/\s*0\.)/);
-  expect(nodeFill).not.toMatch(/255\s*,\s*255\s*,\s*255/);
+  expect(nodeFills.length).toBeGreaterThan(2);
+  expect(nodeFills.every((fill) => /(?:rgba\(.*0\.|\/\s*0\.)/.test(fill))).toBe(true);
+  expect(nodeFills.every((fill) => !/255\s*,\s*255\s*,\s*255/.test(fill))).toBe(true);
+  expect(new Set(nodeFills).size).toBeGreaterThan(2);
 });
 
 test("collapses, restores, and resizes the source panel", async ({ page }) => {

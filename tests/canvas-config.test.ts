@@ -54,4 +54,10 @@ describe("large canvas navigation", () => {
     expect(canvasSource).toContain("document.nodes.length > virtualNodeThreshold");
     expect(canvasSource).toContain("this.graph.disableVirtualRender()");
   });
+
+  it("refreshes translucent node palettes when the theme changes", () => {
+    expect(canvasSource).toContain("refreshTheme(): void");
+    expect(canvasSource).toContain("cell.setAttrs(attrs)");
+    expect(canvasSource).toContain("translucentColor(colors.stroke, 0.16)");
+  });
 });

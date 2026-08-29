@@ -1758,6 +1758,7 @@ export class BranchScriptApp {
     const theme = this.store.get().theme === "dark" ? "light" : "dark";
     this.store.update({ theme });
     this.applyTheme();
+    this.canvas?.refreshTheme();
     this.scheduleSave();
   }
 
