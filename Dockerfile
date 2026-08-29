@@ -7,14 +7,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 
-COPY tsconfig.json vite.config.ts vitest.config.ts index.html ./
-COPY app ./app
-COPY blog ./blog
-COPY faq ./faq
-COPY public ./public
-COPY examples ./examples
-COPY scripts ./scripts
-COPY src ./src
+COPY . .
 
 RUN npm run build \
     && test -f dist/index.html

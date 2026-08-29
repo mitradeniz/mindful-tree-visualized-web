@@ -7,7 +7,7 @@
     "dev": "vite",
     "generate:parser": "lezer-generator src/scripting/mindtree.grammar -o src/scripting/generated-parser.ts --typeScript",
     "prebuild": "npm run generate:parser",
-    "build": "tsc --noEmit && vite build && node scripts/ensure-root-build.mjs",
+    "build": "tsc --noEmit && vite build",
     "typecheck": "npm run generate:parser && tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
