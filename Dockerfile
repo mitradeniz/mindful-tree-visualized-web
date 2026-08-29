@@ -15,7 +15,8 @@ COPY public ./public
 COPY examples ./examples
 COPY src ./src
 
-RUN npm run build
+RUN npm run build \
+    && test -f dist/index.html
 
 FROM nginxinc/nginx-unprivileged:1.28.1-alpine
 
