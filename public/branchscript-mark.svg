@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">BranchScript</title>
+  <desc id="desc">A thought tree drawn over a dotted yellow straw-paper canvas.</desc>
+  <defs>
+    <linearGradient id="paper" x1="7" y1="3" x2="57" y2="62" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f0cf72"/>
+      <stop offset=".48" stop-color="#dfb955"/>
+      <stop offset="1" stop-color="#c99c3d"/>
+    </linearGradient>
+    <pattern id="dots" width="8" height="8" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r=".85" fill="#5e4c25" opacity=".3"/>
+    </pattern>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="2" stdDeviation="1.8" flood-color="#151a17" flood-opacity=".28"/>
+    </filter>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="#6d5222" opacity=".42"/>
+  <rect x="1" y="1" width="60" height="60" rx="16" fill="url(#paper)" filter="url(#shadow)"/>
+  <rect x="1" y="1" width="60" height="60" rx="16" fill="url(#dots)"/>
+  <g fill="none" stroke="#f8e4a4" stroke-linecap="round" opacity=".45">
+    <path d="M8 15c7-3 11-3 17-1M38 8c5 0 10 1 15 4M8 49c8 2 13 2 19 0M40 55c5-2 9-2 14-1"/>
+    <path d="M13 8l3 2M50 25l4 1M8 34l4-1M30 57l3-1"/>
+  </g>
+  <g fill="none" stroke="#203129" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M31 49V37M31 37L17 24M31 37V18M31 37L46 24"/>
+  </g>
+  <g fill="#203129" stroke="#f4d987" stroke-width="1.5">
+    <circle cx="31" cy="50" r="5.5"/>
+    <circle cx="17" cy="23" r="5.5"/>
+    <circle cx="31" cy="16" r="5.5"/>
+    <circle cx="47" cy="23" r="5.5"/>
+  </g>
+  <circle cx="31" cy="37" r="4.2" fill="#f5dd91" stroke="#203129" stroke-width="2.7"/>
+</svg>
