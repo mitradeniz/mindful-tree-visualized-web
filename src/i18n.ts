@@ -15,6 +15,11 @@ const translations: Record<Exclude<Locale, "en">, Record<string, string>> = {
     "Script your thoughts. See them grow.": "Düşüncelerini yaz. Gelişimini gör.",
     "Project actions": "Proje işlemleri",
     Home: "Ana sayfa",
+    "Blank project": "Boş proje",
+    "Start with an empty canvas.": "Boş bir tuvalle başla.",
+    "Start blank project": "Boş proje başlat",
+    "Start a blank project and replace the current editor content?": "Boş bir proje başlatılsın ve mevcut düzenleyici içeriği değiştirilsin mi?",
+    "Blank project ready": "Boş proje hazır",
     "Save project": "Projeyi kaydet",
     "Sign in": "Giriş yap",
     Learn: "Öğren",
@@ -264,6 +269,7 @@ const translations: Record<Exclude<Locale, "en">, Record<string, string>> = {
   },
   es: {
     "Script your thoughts. See them grow.": "Escribe tus ideas. Míralas crecer.",
+    "Blank project": "Proyecto vacío", "Start with an empty canvas.": "Empieza con un lienzo vacío.", "Start blank project": "Iniciar proyecto vacío", "Start a blank project and replace the current editor content?": "¿Iniciar un proyecto vacío y reemplazar el contenido actual del editor?", "Blank project ready": "Proyecto vacío listo",
     Home: "Inicio", "Save project": "Guardar proyecto", "Sign in": "Iniciar sesión", Learn: "Aprender", Import: "Importar", "Export project": "Exportar proyecto", Language: "Idioma",
     "Choose a visual language": "Elige un lenguaje visual", "Every card loads a live .mtree example.": "Cada tarjeta carga un ejemplo .mtree interactivo.", "Every card loads a live": "Cada tarjeta carga un ejemplo", "example.": "interactivo.", SOURCE: "CÓDIGO", "Load {name} template": "Cargar plantilla {name}",
     Source: "Código", Canvas: "Lienzo", "Hide source panel": "Ocultar panel de código", "Show source panel": "Mostrar panel de código", "Resize source panel": "Cambiar el tamaño del panel de código", "Syntax guide": "Guía de sintaxis", Diagnostics: "Diagnósticos", "No syntax errors.": "Sin errores de sintaxis.",
@@ -285,6 +291,7 @@ const translations: Record<Exclude<Locale, "en">, Record<string, string>> = {
   },
   de: {
     "Script your thoughts. See them grow.": "Schreibe deine Gedanken. Sieh sie wachsen.",
+    "Blank project": "Leeres Projekt", "Start with an empty canvas.": "Mit einer leeren Zeichenfläche beginnen.", "Start blank project": "Leeres Projekt starten", "Start a blank project and replace the current editor content?": "Ein leeres Projekt starten und den aktuellen Editorinhalt ersetzen?", "Blank project ready": "Leeres Projekt bereit",
     Home: "Start", "Save project": "Projekt speichern", "Sign in": "Anmelden", Learn: "Lernen", Import: "Importieren", "Export project": "Projekt exportieren", Language: "Sprache",
     "Choose a visual language": "Wähle eine visuelle Sprache", "Every card loads a live .mtree example.": "Jede Karte lädt ein interaktives .mtree-Beispiel.", "Every card loads a live": "Jede Karte lädt ein interaktives", "example.": "Beispiel.", SOURCE: "QUELLTEXT", "Load {name} template": "Vorlage {name} laden",
     Source: "Quelltext", Canvas: "Canvas", "Hide source panel": "Quelltextbereich ausblenden", "Show source panel": "Quelltextbereich anzeigen", "Resize source panel": "Quelltextbereich skalieren", "Syntax guide": "Syntaxhilfe", Diagnostics: "Diagnose", "No syntax errors.": "Keine Syntaxfehler.",
@@ -306,6 +313,7 @@ const translations: Record<Exclude<Locale, "en">, Record<string, string>> = {
   },
   fr: {
     "Script your thoughts. See them grow.": "Écrivez vos idées. Regardez-les grandir.",
+    "Blank project": "Projet vierge", "Start with an empty canvas.": "Commencez avec un canevas vide.", "Start blank project": "Démarrer un projet vierge", "Start a blank project and replace the current editor content?": "Démarrer un projet vierge et remplacer le contenu actuel de l’éditeur ?", "Blank project ready": "Projet vierge prêt",
     Home: "Accueil", "Save project": "Enregistrer le projet", "Sign in": "Se connecter", Learn: "Apprendre", Import: "Importer", "Export project": "Exporter le projet", Language: "Langue",
     "Choose a visual language": "Choisissez un langage visuel", "Every card loads a live .mtree example.": "Chaque carte charge un exemple .mtree interactif.", "Every card loads a live": "Chaque carte charge un exemple", "example.": "interactif.", SOURCE: "SOURCE", "Load {name} template": "Charger le modèle {name}",
     Source: "Source", Canvas: "Canevas", "Hide source panel": "Masquer le panneau source", "Show source panel": "Afficher le panneau source", "Resize source panel": "Redimensionner le panneau source", "Syntax guide": "Guide de syntaxe", Diagnostics: "Diagnostics", "No syntax errors.": "Aucune erreur de syntaxe.",

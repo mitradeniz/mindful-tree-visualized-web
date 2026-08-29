@@ -22,7 +22,7 @@ import { GraphCanvas } from "../canvas/graph-canvas";
 import type { DiagramView, GraphDocument, GraphNode, NodeKind } from "../domain/graph-document";
 import { ScriptEditor } from "../editor/script-editor";
 import { getLocale, localeOptions, localizeElement, setLocale, t, type Locale } from "../i18n";
-import { playgroundPresets, presetForView } from "../playground/presets";
+import { blankProjectSource, playgroundPresets, presetForView } from "../playground/presets";
 import { compileMindTree } from "../scripting/compiler";
 import type { Diagnostic } from "../scripting/diagnostic";
 import { loadProject, saveProject, type SavedProject } from "../storage/project-storage";
@@ -30,6 +30,7 @@ import { loadProject, saveProject, type SavedProject } from "../storage/project-
 interface ExportBundle {
   format: "branchscript-project";
   version: "0.1";
+  sourceName: string;
   source: string;
   workspace: {
     direction: "LR" | "TB";
@@ -63,6 +64,7 @@ const importBundleSchema = z
   .object({
     format: z.literal("branchscript-project"),
     version: z.literal("0.1"),
+    sourceName: z.string().min(1).max(120).optional(),
     source: z.string().max(1_000_000),
     workspace: z
       .object({
@@ -102,12 +104,14 @@ export class BranchScriptApp {
   private sourcePanelCollapsed = false;
   private sourcePanelPointerId: number | null = null;
   private editingNodeId: string | null = null;
+  private sourceName = "software-interview.mtree";
 
   constructor(private readonly root: HTMLElement) {}
 
   async mount(): Promise<void> {
     const saved = await this.safeLoad();
     if (saved) {
+      this.sourceName = this.normalizeSourceName(saved.sourceName ?? this.sourceNameFor(saved.source));
       this.store.update({
         source: saved.source,
         direction: saved.direction,
@@ -119,6 +123,7 @@ export class BranchScriptApp {
 
     this.root.innerHTML = this.template();
     localizeElement(this.root);
+    this.updateSourceName();
     this.applyTheme();
 
     const editorElement = this.requireElement("script-editor");
@@ -184,6 +189,10 @@ export class BranchScriptApp {
             <span>Every card loads a live <code>.mtree</code> example.</span>
           </div>
           <div class="preset-list">
+            <button class="preset-card preset-card-blank" id="blank-project-button" type="button" aria-label="Start blank project">
+              <span class="preset-visual blank" aria-hidden="true"><span class="blank-plus">＋</span></span>
+              <span class="preset-copy"><strong>Blank project</strong><small>Start with an empty canvas.</small></span>
+            </button>
             ${playgroundPresets.map((preset) => this.presetCard(preset.id, preset.shortTitle, preset.description)).join("")}
             <button class="preset-card preset-card-coming-soon" type="button" disabled aria-label="${t("System Design")}: ${t("Coming soon")}">
               <span class="preset-visual system-design" aria-hidden="true"><span class="motif-node system-a"></span><span class="motif-node system-b"></span><span class="motif-node system-c"></span><span class="motif-node system-d"></span></span>
@@ -201,7 +210,7 @@ export class BranchScriptApp {
             <div class="panel-header">
               <div>
                 <span class="eyebrow">SOURCE</span>
-                <strong>interview.mtree</strong>
+                <strong id="source-file-name"></strong>
               </div>
               <div class="compact-actions">
                 <button class="button ghost compact" id="editor-guide-button" type="button">Syntax guide</button>
@@ -494,6 +503,7 @@ export class BranchScriptApp {
     for (const card of this.root.querySelectorAll<HTMLButtonElement>("[data-preset]")) {
       card.addEventListener("click", () => void this.loadPreset(card.dataset.preset as DiagramView));
     }
+    this.requireElement("blank-project-button").addEventListener("click", () => void this.startBlankProject());
     this.requireElement("confirmation-cancel").addEventListener("click", () => this.resolveConfirmation(false));
     this.requireElement("confirmation-accept").addEventListener("click", () => this.resolveConfirmation(true));
     this.root.querySelector("[data-confirm-cancel]")?.addEventListener("click", () => this.resolveConfirmation(false));
@@ -1144,8 +1154,10 @@ export class BranchScriptApp {
   }
 
   private updateViewControls(view: DiagramView): void {
+    const blank = this.store.get().document?.nodes.length === 0;
+    this.requireElement("blank-project-button").dataset.active = String(blank);
     for (const card of this.root.querySelectorAll<HTMLButtonElement>("[data-preset]")) {
-      card.dataset.active = String(card.dataset.preset === view);
+      card.dataset.active = String(!blank && card.dataset.preset === view);
     }
     const directionButton = this.requireElement("direction-button") as HTMLButtonElement;
     directionButton.disabled = view !== "flow";
@@ -1166,6 +1178,25 @@ export class BranchScriptApp {
     );
   }
 
+  private async startBlankProject(): Promise<void> {
+    if (this.store.get().source !== blankProjectSource) {
+      const accepted = await this.requestConfirmation({
+        title: t("Replace current diagram?"),
+        message: t("Start a blank project and replace the current editor content?"),
+        confirmLabel: t("Replace"),
+      });
+      if (!accepted) return;
+    }
+    this.closeRunner();
+    this.closeQuickBuilder();
+    this.currentCloudDiagram = null;
+    this.setSourceName("untitled.mtree");
+    this.store.update({ source: blankProjectSource, positions: {}, direction: "TB", selectedNodeId: null });
+    this.editor?.setValue(blankProjectSource, { scrollToTop: true });
+    this.compile(true);
+    this.updateStatus(t("Blank project ready"), "ok");
+  }
+
   private async loadPreset(view: DiagramView): Promise<void> {
     const preset = presetForView(view);
     if (this.store.get().source !== preset.source) {
@@ -1178,8 +1209,9 @@ export class BranchScriptApp {
     }
     const direction = view === "flow" || view === "neural" || view === "data" ? "LR" : "TB";
     this.currentCloudDiagram = null;
+    this.setSourceName(preset.filename);
     this.store.update({ source: preset.source, positions: {}, direction });
-    this.editor?.setValue(preset.source);
+    this.editor?.setValue(preset.source, { scrollToTop: true });
     this.runPath = [];
     this.updateStatus(t("Loaded {name}", { name: t(preset.title) }), "ok");
   }
@@ -1504,6 +1536,7 @@ export class BranchScriptApp {
     }
     const workspace = diagram.workspace ?? {};
     this.currentCloudDiagram = diagram;
+    this.setSourceName(this.sourceNameFor(diagram.source, diagram.title));
     this.store.update({
       source: diagram.source,
       direction: workspace.direction ?? "LR",
@@ -1511,7 +1544,7 @@ export class BranchScriptApp {
       theme: workspace.theme ?? this.store.get().theme,
     });
     this.applyTheme();
-    this.editor?.setValue(diagram.source);
+    this.editor?.setValue(diagram.source, { scrollToTop: true });
     this.compile(true);
     this.renderCloudLibrary();
     this.closeAccountPanel();
@@ -1613,6 +1646,7 @@ export class BranchScriptApp {
     try {
       await saveProject({
         id: "default",
+        sourceName: this.sourceName,
         source: state.source,
         direction: state.direction,
         theme: state.theme,
@@ -1651,10 +1685,12 @@ export class BranchScriptApp {
           theme: bundle.workspace?.theme ?? this.store.get().theme,
         });
         this.applyTheme();
-        this.editor?.setValue(bundle.source);
+        this.setSourceName(bundle.sourceName ?? this.sourceNameFor(bundle.source, file.name.replace(/\.json$/i, "")));
+        this.editor?.setValue(bundle.source, { scrollToTop: true });
       } else {
         this.store.update({ source: text, positions: {} });
-        this.editor?.setValue(text);
+        this.setSourceName(file.name);
+        this.editor?.setValue(text, { scrollToTop: true });
       }
       this.compile(true);
     } catch (error) {
@@ -1665,7 +1701,7 @@ export class BranchScriptApp {
   }
 
   private exportSource(): void {
-    this.download("branchscript.mtree", this.store.get().source, "text/plain;charset=utf-8");
+    this.download(this.sourceName, this.store.get().source, "text/plain;charset=utf-8");
   }
 
   private exportProject(): void {
@@ -1673,6 +1709,7 @@ export class BranchScriptApp {
     const bundle: ExportBundle = {
       format: "branchscript-project",
       version: "0.1",
+      sourceName: this.sourceName,
       source: state.source,
       workspace: {
         direction: state.direction,
@@ -1681,6 +1718,38 @@ export class BranchScriptApp {
       },
     };
     this.download("branchscript-project.json", JSON.stringify(bundle, null, 2), "application/json");
+  }
+
+  private sourceNameFor(source: string, fallbackTitle?: string): string {
+    if (source === defaultSource) return "software-interview.mtree";
+    if (source === blankProjectSource) return "untitled.mtree";
+    const preset = playgroundPresets.find((candidate) => candidate.source === source);
+    if (preset) return preset.filename;
+    const title = fallbackTitle ?? compileMindTree(source).document?.id ?? "untitled";
+    return this.normalizeSourceName(title);
+  }
+
+  private normalizeSourceName(value: string): string {
+    const basename = value.split(/[\\/]/).at(-1) ?? "untitled";
+    const stem = basename
+      .replace(/\.(?:mtree|json)$/i, "")
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^[._-]+|[._-]+$/g, "")
+      .slice(0, 112);
+    return `${stem || "untitled"}.mtree`;
+  }
+
+  private setSourceName(value: string): void {
+    this.sourceName = this.normalizeSourceName(value);
+    this.updateSourceName();
+  }
+
+  private updateSourceName(): void {
+    const target = this.root.querySelector<HTMLElement>("#source-file-name");
+    if (target) target.textContent = this.sourceName;
   }
 
   private download(filename: string, content: string, type: string): void {

@@ -24,6 +24,34 @@ test("renders the example script as a thought tree", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "BranchScript" })).toBeVisible();
   await expect(page.getByText("No syntax errors.")).toBeVisible();
   await expect(page.locator("#graph-canvas")).toHaveAttribute("data-node-count", "16");
+  await expect(page.locator("#source-file-name")).toHaveText("software-interview.mtree");
+});
+
+test("resets the editor viewport for examples and can start blank", async ({ page }) => {
+  await page.goto("/app/");
+  const scroller = page.locator(".cm-scroller");
+  await scroller.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+
+  await page.getByRole("button", { name: "Load Flow template" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Replace" }).click();
+
+  await expect(page.locator("#source-file-name")).toHaveText("idea-to-launch.mtree");
+  await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeLessThan(2);
+  await expect(page.locator(".cm-line").first()).toContainText("diagram launch_flow");
+
+  await page.getByRole("button", { name: "Start blank project" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Replace" }).click();
+
+  await expect(page.locator("#source-file-name")).toHaveText("untitled.mtree");
+  await expect(page.locator("#graph-canvas")).toHaveAttribute("data-node-count", "0");
+  await expect(page.getByText("No syntax errors.")).toBeVisible();
+  await expect(page.locator(".cm-line").first()).toContainText('diagram untitled "Untitled"');
+
+  await page.locator("#add-node-button").click();
+  await page.getByLabel("Box text").fill("First thought");
+  await page.locator("#quick-node-submit").click();
+  await expect(page.locator("#graph-canvas")).toHaveAttribute("data-node-count", "1");
+  await expect(page.locator(".cm-content")).toContainText('process first_thought "First thought"');
 });
 
 test("shows System Design as a disabled coming-soon view", async ({ page }) => {
@@ -121,7 +149,7 @@ test("exports the source document", async ({ page }) => {
   await page.getByRole("button", { name: "Export .mtree" }).click();
   const download = await downloadPromise;
 
-  expect(download.suggestedFilename()).toBe("branchscript.mtree");
+  expect(download.suggestedFilename()).toBe("software-interview.mtree");
 });
 
 test("requires sign-in before saving the project", async ({ page }) => {

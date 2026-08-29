@@ -2,15 +2,21 @@ import type { DiagramView } from "../domain/graph-document";
 
 export interface PlaygroundPreset {
   id: DiagramView;
+  filename: string;
   title: string;
   shortTitle: string;
   description: string;
   source: string;
 }
 
+export const blankProjectSource = `diagram untitled "Untitled"
+@view tree
+`;
+
 export const playgroundPresets: PlaygroundPreset[] = [
   {
     id: "tree",
+    filename: "thought-tree.mtree",
     title: "Thought Tree",
     shortTitle: "Tree",
     description: "Questions branch into possible responses and follow-ups.",
@@ -51,6 +57,7 @@ topic introduction "Introduction"
   },
   {
     id: "flow",
+    filename: "idea-to-launch.mtree",
     title: "Left-to-right Flow",
     shortTitle: "Flow",
     description: "A clear sequence with decisions and named transitions.",
@@ -90,6 +97,7 @@ connect refine -> prototype "try again"
   },
   {
     id: "neural",
+    filename: "interview-fit-network.mtree",
     title: "Neural Flow",
     shortTitle: "Neural",
     description: "Inputs activate layered neurons before producing outputs.",
@@ -140,6 +148,7 @@ connect relevance -> followup
   },
   {
     id: "logic",
+    filename: "response-selection.mtree",
     title: "Logic Flow",
     shortTitle: "Logic",
     description: "Run conditions live and choose the next branch.",
@@ -179,6 +188,7 @@ connect add_context -> complete
   },
   {
     id: "algorithm",
+    filename: "binary-search.mtree",
     title: "Pseudocode Algorithm",
     shortTitle: "Algorithm",
     description: "Turn functions, loops, conditions, and returns into a runnable path.",
@@ -235,6 +245,7 @@ connect move_high -> remaining "repeat"
   },
   {
     id: "data",
+    filename: "data-structures.mtree",
     title: "Data Structure",
     shortTitle: "Data",
     description: "Compare arrays, stacks, queues, records, and linked references.",

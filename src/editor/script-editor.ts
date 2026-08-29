@@ -78,12 +78,17 @@ export class ScriptEditor {
     forceLinting(this.view);
   }
 
-  setValue(source: string): void {
+  setValue(source: string, options: { scrollToTop?: boolean } = {}): void {
     const current = this.view.state.doc.toString();
-    if (current === source) return;
+    if (current === source && !options.scrollToTop) return;
     this.view.dispatch({
-      changes: { from: 0, to: current.length, insert: source },
+      ...(current === source ? {} : { changes: { from: 0, to: current.length, insert: source } }),
+      ...(options.scrollToTop ? { selection: { anchor: 0 }, effects: EditorView.scrollIntoView(0, { y: "start" }) } : {}),
     });
+    if (options.scrollToTop) {
+      this.view.scrollDOM.scrollTop = 0;
+      this.view.scrollDOM.scrollLeft = 0;
+    }
   }
 
   reveal(from: number, to = from): void {

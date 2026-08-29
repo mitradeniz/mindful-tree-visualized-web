@@ -1,7 +1,7 @@
 import source from "../examples/software-interview.mtree?raw";
 import whoopSource from "../examples/whoop-android-interview.mtree?raw";
 import { describe, expect, it } from "vitest";
-import { playgroundPresets } from "../src/playground/presets";
+import { blankProjectSource, playgroundPresets } from "../src/playground/presets";
 import { compileMindTree } from "../src/scripting/compiler";
 
 describe("compileMindTree", () => {
@@ -66,6 +66,13 @@ describe("compileMindTree", () => {
       expect(result.diagnostics, preset.id).toEqual([]);
       expect(result.document?.view).toBe(preset.id);
     }
+  });
+
+  it("accepts an explicitly declared blank project", () => {
+    const result = compileMindTree(blankProjectSource);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.document).toMatchObject({ id: "untitled", title: "Untitled", view: "tree", nodes: [] });
   });
 
   it("preserves connection labels", () => {

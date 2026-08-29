@@ -540,7 +540,7 @@ export function compileMindTree(source: string): CompileResult {
     });
   }
 
-  if (nodes.length === 0) {
+  if (nodes.length === 0 && !treeSeen) {
     diagnostics.push(diagnostic("Add at least one node.", 1, 1, 0, Math.min(source.length, 1)));
   }
 

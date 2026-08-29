@@ -2,6 +2,7 @@ import type { LayoutDirection, Point, Theme } from "../app/app-store";
 
 export interface SavedProject {
   id: "default";
+  sourceName?: string;
   source: string;
   direction: LayoutDirection;
   theme: Theme;
