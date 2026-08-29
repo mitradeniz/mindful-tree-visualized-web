@@ -244,7 +244,7 @@ export async function deleteDiagram(id: number): Promise<void> {
 
 export function authErrorMessage(error: unknown): string {
   if (!(error instanceof CloudApiError)) return "The service is currently unavailable.";
-  return {
+  const message = {
     err_invalid_input: "Check the form fields and try again.",
     err_password_policy: "Use a password between 15 and 72 characters.",
     err_email_exists: "An account already exists for this email.",
@@ -259,5 +259,9 @@ export function authErrorMessage(error: unknown): string {
     err_service_unavailable: "Account services are temporarily unavailable.",
     err_already_verified: "This email is already verified. You can sign in.",
     err_resend_cooldown: "Wait a moment before requesting another code.",
-  }[error.code] ?? "The request could not be completed.";
+  }[error.code];
+  if (message) return message;
+  if (error.status === 403) return "This request was blocked by the security policy.";
+  if (error.status >= 500) return "The service is currently unavailable.";
+  return "The request could not be completed.";
 }

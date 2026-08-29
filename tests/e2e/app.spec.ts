@@ -37,6 +37,7 @@ test("resets the editor viewport for examples and can start blank", async ({ pag
 
   await expect(page.locator("#source-file-name")).toHaveText("idea-to-launch.mtree");
   await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeLessThan(2);
+  await expect.poll(() => page.locator("#script-editor").evaluate((element) => element.scrollTop)).toBe(0);
   await expect(page.locator(".cm-line").first()).toContainText("diagram launch_flow");
 
   await page.getByRole("button", { name: "Start blank project" }).click();
@@ -445,6 +446,15 @@ test("keeps the localized workspace inside a mobile viewport", async ({ page }) 
   await expect(page.getByRole("button", { name: "Kaynak" })).toBeVisible();
   await expect(page.locator("#workspace-resizer")).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  const node = page.locator("#graph-canvas .x6-node").first();
+  const box = await node.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) return;
+  const touch = { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2 };
+  await node.dispatchEvent("pointerdown", touch);
+  await node.dispatchEvent("pointerup", touch);
+  await expect(page.locator("#node-inspector")).not.toContainText("Select a node");
 });
 
 test("prevents browser text selection outside editable controls", async ({ page }) => {

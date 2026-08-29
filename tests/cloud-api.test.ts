@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CloudApiError, getSession, listDiagrams, register } from "../src/auth/cloud-api";
+import { authErrorMessage, CloudApiError, getSession, listDiagrams, register } from "../src/auth/cloud-api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -41,5 +41,25 @@ describe("cloud API response validation", () => {
       code: "err_invalid_input",
     } satisfies Partial<CloudApiError>);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("authentication error messages", () => {
+  it("keeps specific account guidance for known errors", () => {
+    expect(authErrorMessage(new CloudApiError(403, "err_not_verified"))).toBe(
+      "Verify your email before signing in.",
+    );
+  });
+
+  it("explains unknown security-policy rejections", () => {
+    expect(authErrorMessage(new CloudApiError(403, "err_request_failed"))).toBe(
+      "This request was blocked by the security policy.",
+    );
+  });
+
+  it("does not expose unknown server errors", () => {
+    expect(authErrorMessage(new CloudApiError(503, "err_request_failed"))).toBe(
+      "The service is currently unavailable.",
+    );
   });
 });

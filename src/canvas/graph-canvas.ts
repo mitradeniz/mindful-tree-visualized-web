@@ -93,6 +93,7 @@ export class GraphCanvas {
   private edgeVisibilityFrame: number | null = null;
   private zoomFrame: number | null = null;
   private pendingZoom: { scale: number; center: Point } | null = null;
+  private touchStart: { pointerId: number; x: number; y: number } | null = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -151,6 +152,9 @@ export class GraphCanvas {
     );
 
     this.container.addEventListener("wheel", this.onCanvasWheel, { passive: false });
+    this.container.addEventListener("pointerdown", this.onCanvasPointerDown, { passive: true });
+    this.container.addEventListener("pointerup", this.onCanvasPointerUp, { passive: true });
+    this.container.addEventListener("pointercancel", this.onCanvasPointerCancel, { passive: true });
     this.graph.on("scale", this.scheduleEdgeVisibility);
     this.graph.on("translate", this.scheduleEdgeVisibility);
     this.graph.on("blank:dblclick", () => this.callbacks.onQuickAdd());
@@ -190,6 +194,26 @@ export class GraphCanvas {
       return false;
     });
   }
+
+  private readonly onCanvasPointerDown = (event: PointerEvent): void => {
+    if (event.pointerType !== "touch" || !event.isPrimary) return;
+    this.touchStart = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+  };
+
+  private readonly onCanvasPointerUp = (event: PointerEvent): void => {
+    const start = this.touchStart;
+    this.touchStart = null;
+    if (!start || event.pointerId !== start.pointerId) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 12) return;
+    const target = event.target instanceof Element ? event.target.closest<HTMLElement>(".x6-node[data-cell-id]") : null;
+    const nodeId = target?.dataset.cellId;
+    if (nodeId) this.focusNode(nodeId, false);
+    else this.container.focus({ preventScroll: true });
+  };
+
+  private readonly onCanvasPointerCancel = (): void => {
+    this.touchStart = null;
+  };
 
   render(
     document: GraphDocument,

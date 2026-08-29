@@ -50,7 +50,7 @@ export class ScriptEditor {
   private readonly view: EditorView;
   private diagnostics: Diagnostic[] = [];
 
-  constructor(container: HTMLElement, source: string, callbacks: EditorCallbacks) {
+  constructor(private readonly container: HTMLElement, source: string, callbacks: EditorCallbacks) {
     const diagnosticsSource = linter(() => this.toEditorDiagnostics());
     this.view = new EditorView({
       parent: container,
@@ -71,6 +71,7 @@ export class ScriptEditor {
         ],
       }),
     });
+    this.resetViewport();
   }
 
   setDiagnostics(diagnostics: Diagnostic[]): void {
@@ -83,12 +84,9 @@ export class ScriptEditor {
     if (current === source && !options.scrollToTop) return;
     this.view.dispatch({
       ...(current === source ? {} : { changes: { from: 0, to: current.length, insert: source } }),
-      ...(options.scrollToTop ? { selection: { anchor: 0 }, effects: EditorView.scrollIntoView(0, { y: "start" }) } : {}),
+      ...(options.scrollToTop ? { selection: { anchor: 0 } } : {}),
     });
-    if (options.scrollToTop) {
-      this.view.scrollDOM.scrollTop = 0;
-      this.view.scrollDOM.scrollLeft = 0;
-    }
+    if (options.scrollToTop) this.resetViewport();
   }
 
   reveal(from: number, to = from): void {
@@ -128,6 +126,17 @@ export class ScriptEditor {
 
   dispose(): void {
     this.view.destroy();
+  }
+
+  private resetViewport(): void {
+    const reset = () => {
+      this.container.scrollTop = 0;
+      this.container.scrollLeft = 0;
+      this.view.scrollDOM.scrollTop = 0;
+      this.view.scrollDOM.scrollLeft = 0;
+    };
+    reset();
+    window.requestAnimationFrame(reset);
   }
 
   private toEditorDiagnostics(): EditorDiagnostic[] {
