@@ -20,7 +20,9 @@ RUN npm run build
 FROM nginxinc/nginx-unprivileged:1.28.1-alpine
 
 COPY --chown=101:101 deploy/nginx/default.conf /etc/nginx/conf.d/default.conf
-COPY --chown=101:101 --from=build /app/dist /usr/share/nginx/html
+COPY --chown=101:101 --from=build /app/dist/. /srv/branchscript/
+
+USER 101:101
 
 EXPOSE 8080
 
