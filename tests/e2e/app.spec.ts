@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 const compactAnswerSource = `diagram tree "Answer card test"
 @view tree
 
-topic intro "Introduction"
+question intro "Introduction"
   response concise "Backend-focused introduction"
     @answer "I build reliable backend systems and own services from API design through production."
     @feature "Present → evidence → role fit"
@@ -274,6 +274,103 @@ test("adds a styled box without writing script", async ({ page }) => {
   await expect(page.locator("#graph-canvas .x6-node").last()).toContainText("I would answer");
 });
 
+test("adds a typographic text block from the visual builder", async ({ page }) => {
+  await page.goto("/app/");
+  await page.getByRole("button", { name: "Open visual builder" }).click();
+
+  const builder = page.locator("#quick-builder");
+  await builder.getByLabel("Box text").fill("Interview reminder");
+  await builder.getByLabel("Type").selectOption("text");
+  await builder.getByLabel("Supporting text").fill("Pause, then answer with the result first.");
+  await builder.getByRole("button", { name: "Show advanced settings" }).click();
+  await builder.locator("#quick-font").selectOption("serif");
+  await builder.locator("#quick-font-size").fill("28");
+  await builder.locator("#quick-font-weight").selectOption("bold");
+  await builder.locator("#quick-align").selectOption("center");
+  await builder.locator("#quick-category").fill("Interview notes");
+  await builder.locator("#quick-width").selectOption("wide");
+  await builder.getByRole("button", { name: "Add box" }).click();
+
+  await expect(page.locator(".cm-content")).toContainText('text interview_reminder "Interview reminder"');
+  await expect(page.locator(".cm-content")).toContainText("@font serif");
+  await expect(page.locator(".cm-content")).toContainText("@font-size 28");
+  await expect(page.locator(".cm-content")).toContainText("@font-weight bold");
+  await expect(page.locator(".cm-content")).toContainText("@align center");
+  await expect(page.locator(".cm-content")).toContainText('@category "Interview notes"');
+  await expect(page.locator(".cm-content")).toContainText("@width wide");
+  const textBlock = page.locator('#graph-canvas .x6-node[data-cell-id="interview_reminder"]');
+  await expect(textBlock.locator(".branchscript-text-block")).toBeVisible();
+  await expect(textBlock.locator('text[font-size="28"]')).toContainText("Interview reminder");
+  await expect(textBlock.locator('text[font-family*="Georgia"]').first()).toBeVisible();
+  await expect(textBlock).toContainText("INTERVIEW NOTES");
+});
+
+test("uses categories for consistent colors and width presets for readable cards", async ({ page }) => {
+  await page.goto("/app/");
+  const source = `diagram categories "Interview categories"
+@view flow
+
+process first "Compact behavioral prompt"
+  @category "Behavioral"
+  @width compact
+process second "Wide behavioral answer with more room to scan"
+  @category "Behavioral"
+  @width wide
+process third "Technical follow-up"
+  @category "Technical"
+
+connect first -> second
+connect second -> third`;
+  const editor = page.locator(".cm-content");
+  await editor.click();
+  await editor.press("ControlOrMeta+A");
+  await page.keyboard.insertText(source);
+  await expect(page.locator("#graph-canvas")).toHaveAttribute("data-node-count", "3");
+
+  const first = page.locator('#graph-canvas .x6-node[data-cell-id="first"]').first();
+  const second = page.locator('#graph-canvas .x6-node[data-cell-id="second"]').first();
+  const third = page.locator('#graph-canvas .x6-node[data-cell-id="third"]').first();
+  await expect(first).toContainText("BEHAVIORAL");
+  await expect(second).toContainText("BEHAVIORAL");
+  await expect(third).toContainText("TECHNICAL");
+
+  const firstStroke = await first.locator(".branchscript-node-body").getAttribute("stroke");
+  const secondStroke = await second.locator(".branchscript-node-body").getAttribute("stroke");
+  const thirdStroke = await third.locator(".branchscript-node-body").getAttribute("stroke");
+  expect(secondStroke).toBe(firstStroke);
+  expect(thirdStroke).not.toBe(firstStroke);
+
+  const firstBox = await first.boundingBox();
+  const secondBox = await second.boundingBox();
+  expect(firstBox).not.toBeNull();
+  expect(secondBox).not.toBeNull();
+  expect(secondBox!.width).toBeGreaterThan(firstBox!.width * 1.4);
+});
+
+test("cycles matching nodes with Enter and Shift+Enter", async ({ page }) => {
+  await page.goto("/app/");
+  const search = page.getByPlaceholder("Search nodes");
+  const status = page.locator("#node-search-status");
+
+  await search.fill("introduction");
+  await expect(status).toHaveText(/^[2-9]\d*$/);
+  await search.press("Enter");
+  await expect(status).toHaveText(/^1\/\d+$/);
+  const firstId = await page.locator(".search-active-node").first().evaluate((element) =>
+    element.closest(".x6-node")?.getAttribute("data-cell-id"),
+  );
+
+  await search.press("Enter");
+  await expect(status).toHaveText(/^2\/\d+$/);
+  const secondId = await page.locator(".search-active-node").first().evaluate((element) =>
+    element.closest(".x6-node")?.getAttribute("data-cell-id"),
+  );
+  expect(secondId).not.toBe(firstId);
+
+  await search.press("Shift+Enter");
+  await expect(status).toHaveText(/^1\/\d+$/);
+});
+
 test("drops a shape onto the canvas and writes it back to source", async ({ page }) => {
   await page.goto("/app/");
   await expect(page.locator("#graph-canvas")).toHaveAttribute("data-node-count", "16");
@@ -286,7 +383,18 @@ test("drops a shape onto the canvas and writes it back to source", async ({ page
   if (!canvasBox) return;
   const targetPosition = { x: Math.round(canvasBox.width * 0.34), y: Math.round(canvasBox.height * 0.62) };
 
-  await page.getByRole("button", { name: "Drag Step shape" }).dragTo(canvas, { targetPosition });
+  const shape = page.getByRole("button", { name: "Drag Step shape" });
+  const shapeBox = await shape.boundingBox();
+  expect(shapeBox).not.toBeNull();
+  if (!shapeBox) return;
+  await page.mouse.move(shapeBox.x + shapeBox.width / 2, shapeBox.y + shapeBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    canvasBox.x + targetPosition.x,
+    canvasBox.y + targetPosition.y,
+    { steps: 8 },
+  );
+  await page.mouse.up();
 
   await expect(canvas).toHaveAttribute("data-node-count", "17");
   await expect(page.locator(".cm-content")).toContainText('process new_step "New step"');
@@ -330,6 +438,41 @@ test("places a selected shape with a canvas tap on mobile", async ({ page }) => 
   await expect(page.locator("#shape-placement-cue")).toBeHidden();
 });
 
+test("drags a shape onto the canvas with a touch pointer", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/app/");
+  await page.getByRole("button", { name: "Open visual builder" }).click();
+
+  const shape = page.getByRole("button", { name: "Drag Step shape" });
+  const canvas = page.locator("#graph-canvas");
+  const shapeBox = await shape.boundingBox();
+  const canvasBox = await canvas.boundingBox();
+  expect(shapeBox).not.toBeNull();
+  expect(canvasBox).not.toBeNull();
+  if (!shapeBox || !canvasBox) return;
+
+  const start = {
+    pointerId: 51,
+    pointerType: "touch",
+    isPrimary: true,
+    clientX: shapeBox.x + shapeBox.width / 2,
+    clientY: shapeBox.y + shapeBox.height / 2,
+  };
+  const target = {
+    ...start,
+    clientX: canvasBox.x + canvasBox.width * 0.4,
+    clientY: canvasBox.y + canvasBox.height * 0.72,
+  };
+  await shape.dispatchEvent("pointerdown", { ...start, buttons: 1, button: 0 });
+  await shape.dispatchEvent("pointermove", { ...target, buttons: 1, button: 0 });
+  await canvas.dispatchEvent("pointerup", { ...target, buttons: 0, button: 0 });
+
+  await expect(canvas).toHaveAttribute("data-node-count", "17");
+  await expect(page.locator(".cm-content")).toContainText('process new_step "New step"');
+  await expect(page.locator(".shape-drag-ghost")).toHaveCount(0);
+  await expect(page.locator("#quick-builder")).not.toHaveClass(/shape-pointer-dragging/);
+});
+
 test("edits an existing box after double click", async ({ page }) => {
   await page.goto("/app/");
   await loadCompactAnswer(page);
@@ -337,10 +480,9 @@ test("edits an existing box after double click", async ({ page }) => {
 
   await node.dblclick();
 
-  const scale = await page.locator("#graph-canvas .x6-graph-svg-viewport").evaluate((element) =>
+  await expect.poll(() => page.locator("#graph-canvas .x6-graph-svg-viewport").evaluate((element) =>
     (element as SVGGraphicsElement).getCTM()?.a ?? 0,
-  );
-  expect(scale).toBeCloseTo(1.25, 1);
+  )).toBeCloseTo(1.25, 1);
 
   const builder = page.locator("#quick-builder");
   await expect(builder).toBeVisible();
@@ -515,6 +657,27 @@ test("keeps the zoom anchor fixed during modified wheel zoom", async ({ page }) 
   expect(Math.abs(after.x + after.width / 2 - anchor.x)).toBeLessThan(3);
   expect(Math.abs(after.y + after.height / 2 - anchor.y)).toBeLessThan(3);
   expect(after.width).toBeGreaterThan(before.width);
+});
+
+test("keeps connections visible through repeated far zoom changes", async ({ page }) => {
+  await page.goto("/app/");
+  const canvas = page.locator("#graph-canvas");
+  const box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) return;
+
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.down("Control");
+  for (let index = 0; index < 8; index += 1) await page.mouse.wheel(0, 520);
+  for (let index = 0; index < 5; index += 1) await page.mouse.wheel(0, -520);
+  await page.keyboard.up("Control");
+
+  const edges = canvas.locator(".x6-edge");
+  expect(await edges.count()).toBeGreaterThan(0);
+  expect(await edges.evaluateAll((elements) => elements.every((element) => {
+    const style = getComputedStyle(element);
+    return style.display !== "none" && style.visibility !== "hidden";
+  }))).toBe(true);
 });
 
 test("keeps the localized workspace inside a mobile viewport", async ({ page }) => {

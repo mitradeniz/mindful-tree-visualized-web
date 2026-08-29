@@ -127,6 +127,55 @@ connect review -> ready "yes"`);
     expect(result.document?.nodes[0]?.source.to.line).toBe(4);
   });
 
+  it("compiles free text blocks with typography settings", () => {
+    const result = compileMindTree(`text reminder "Pause before answering"
+  @text "Take one breath, then lead with the result."
+  @font serif
+  @font-size 28
+  @font-weight bold
+  @align center`);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.document?.nodes[0]).toMatchObject({
+      kind: "text",
+      label: "Pause before answering",
+      text: "Take one breath, then lead with the result.",
+      fontFamily: "serif",
+      fontSize: 28,
+      fontWeight: "bold",
+      textAlign: "center",
+    });
+  });
+
+  it("reports invalid typography settings", () => {
+    const result = compileMindTree(`text reminder "Reminder"
+  @font display
+  @font-size 72
+  @font-weight heavy
+  @align justify`);
+
+    expect(result.document).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(4);
+  });
+
+  it("compiles visual categories and card width presets", () => {
+    const result = compileMindTree(`question project "Describe a difficult project"
+  @category "Behavioral"
+  @width wide`);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.document?.nodes[0]).toMatchObject({ category: "Behavioral", width: "wide" });
+  });
+
+  it("rejects invalid visual category and width values", () => {
+    const result = compileMindTree(`question project "Describe a difficult project"
+  @category unquoted
+  @width enormous`);
+
+    expect(result.document).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(2);
+  });
+
   it("compiles structured data cells and record fields", () => {
     const result = compileMindTree(`diagram data "Data"
 @view data

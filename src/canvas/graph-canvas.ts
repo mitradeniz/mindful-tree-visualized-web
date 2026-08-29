@@ -8,6 +8,8 @@ import type { DiagramView, GraphDocument, GraphEdge, GraphNode, NodeKind } from 
 import { t } from "../i18n";
 import { dataFields, dataItems } from "./data-structure";
 import { calculateLayout, sizeForNode } from "./layout";
+import { intersectsWithOverscan, maxCanvasScale, minCanvasScale, nextWheelZoomScale } from "./navigation";
+import { matchingNodeIds, nodeMatchesSearch } from "./search";
 
 interface CanvasCallbacks {
   onSelect: (nodeIds: string[]) => void;
@@ -30,6 +32,7 @@ const nodeColors: Record<NodeKind, NodePalette> = {
   response: { fill: "#2c2922", stroke: "#8a744c", accent: "#c0ae88" },
   followup: { fill: "#29262f", stroke: "#766786", accent: "#b1a4c0" },
   note: { fill: "#292824", stroke: "#747168", accent: "#aaa79d" },
+  text: { fill: "#282828", stroke: "#7b817d", accent: "#c5cbc7" },
   example: { fill: "#2d2529", stroke: "#80616e", accent: "#b99aa7" },
   input: { fill: "#1f2b2a", stroke: "#4f7d77", accent: "#94b8b3" },
   layer: { fill: "#22292f", stroke: "#596f83", accent: "#9fadb9" },
@@ -67,6 +70,44 @@ const customNodeColors = {
   gray: { fill: "#282828", stroke: "#686868", accent: "#aaaaaa" },
 };
 
+function hslToHex(hue: number, saturation: number, lightness: number): string {
+  const s = saturation / 100;
+  const l = lightness / 100;
+  const chroma = (1 - Math.abs(2 * l - 1)) * s;
+  const section = ((hue % 360) + 360) % 360 / 60;
+  const secondary = chroma * (1 - Math.abs((section % 2) - 1));
+  const [red, green, blue] = section < 1 ? [chroma, secondary, 0]
+    : section < 2 ? [secondary, chroma, 0]
+      : section < 3 ? [0, chroma, secondary]
+        : section < 4 ? [0, secondary, chroma]
+          : section < 5 ? [secondary, 0, chroma]
+            : [chroma, 0, secondary];
+  const offset = l - chroma / 2;
+  return `#${[red, green, blue]
+    .map((channel) => Math.round((channel + offset) * 255).toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function paletteForNode(node: GraphNode): NodePalette {
+  if (node.color) return customNodeColors[node.color];
+  if (!node.category) return nodeColors[node.kind];
+  let hash = 2_166_136_261;
+  for (const character of Array.from(node.category.trim().toLocaleLowerCase())) {
+    hash = Math.imul(hash ^ (character.codePointAt(0) ?? 0), 16_777_619) >>> 0;
+  }
+  const hue = (hash / 4_294_967_295) * 360;
+  return {
+    fill: hslToHex(hue, 18, 15),
+    stroke: hslToHex(hue, 36, 42),
+    accent: hslToHex(hue, 32, 70),
+  };
+}
+
+function categoryBadgeWidth(node: GraphNode, availableWidth: number): number {
+  if (!node.category) return 0;
+  return Math.min(availableWidth, Math.max(58, Math.round(node.category.length * 6.1 + 20)));
+}
+
 function edgeColor(edge: GraphEdge, view: DiagramView): string {
   if (edge.kind === "reference") return "#b88ed9";
   if (view === "neural") return "#719ce6";
@@ -96,6 +137,24 @@ function nodeFill(colors: NodePalette): string {
 function fitDataCellText(value: string, width: number, fontSize: number): string {
   const limit = Math.max(3, Math.floor((width - 16) / (fontSize * 0.62)));
   return value.length > limit ? `${value.slice(0, Math.max(1, limit - 1))}…` : value;
+}
+
+function fontFamilyForNode(node: GraphNode): string {
+  return {
+    sans: "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+    serif: "Iowan Old Style, Palatino Linotype, Book Antiqua, Georgia, serif",
+    mono: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+  }[node.fontFamily ?? "sans"];
+}
+
+function fontWeightForNode(node: GraphNode, fallback: number): number {
+  return { regular: 450, medium: 650, bold: 800 }[node.fontWeight ?? "medium"] ?? fallback;
+}
+
+function textPositionForNode(node: GraphNode, width: number, padding: number): { x: number; anchor: "start" | "middle" | "end" } {
+  if (node.textAlign === "center") return { x: width / 2, anchor: "middle" };
+  if (node.textAlign === "right") return { x: width - padding, anchor: "end" };
+  return { x: padding, anchor: "start" };
 }
 
 export class GraphCanvas {
@@ -134,8 +193,8 @@ export class GraphCanvas {
         enabled: false,
         modifiers: ["ctrl", "meta"],
         factor: 1.05,
-        minScale: 0.01,
-        maxScale: 16,
+        minScale: minCanvasScale,
+        maxScale: maxCanvasScale,
       },
       interacting: {
         edgeLabelMovable: false,
@@ -274,7 +333,7 @@ export class GraphCanvas {
     const previousCenter = { x: (previousA.x + previousB.x) / 2, y: (previousA.y + previousB.y) / 2 };
     const currentCenter = { x: (currentA.x + currentB.x) / 2, y: (currentA.y + currentB.y) / 2 };
     const currentScale = this.pendingTouchTransform?.scale ?? this.graph.zoom();
-    const targetScale = Math.max(0.01, Math.min(16, currentScale * (currentDistance / previousDistance)));
+    const targetScale = Math.max(minCanvasScale, Math.min(maxCanvasScale, currentScale * (currentDistance / previousDistance)));
     this.queueTouchTransform(
       currentCenter.x - previousCenter.x,
       currentCenter.y - previousCenter.y,
@@ -452,13 +511,16 @@ export class GraphCanvas {
   }
 
   private nodeMetadata(node: GraphNode, position: Point): Node.Metadata {
+    if (node.kind === "text") return this.textMetadata(node, position);
     if (dataKinds.has(node.kind) && !node.shape) return this.dataMetadata(node, position);
     const shape = node.shape ?? (node.kind === "decision" || node.kind === "condition" ? "diamond" : node.kind === "neuron" ? "circle" : node.kind === "input" || node.kind === "output" || node.kind === "start" || node.kind === "return" ? "pill" : "card");
     if (shape === "diamond") return this.decisionMetadata(node, position);
     if (shape === "circle") return this.neuronMetadata(node, position);
 
-    const colors = node.color ? customNodeColors[node.color] : nodeColors[node.kind];
+    const colors = paletteForNode(node);
     const size = sizeForNode(node);
+    const labelPosition = textPositionForNode(node, size.width, 20);
+    const categoryWidth = categoryBadgeWidth(node, Math.max(58, size.width * 0.46));
     const pill = shape === "pill";
     const rich = Boolean(node.text || node.answer || node.feature);
     const markup: Node.Metadata["markup"] = [
@@ -467,6 +529,7 @@ export class GraphCanvas {
       { tagName: "text", selector: "kind" },
       { tagName: "text", selector: "label" },
     ];
+    if (node.category) markup.push({ tagName: "rect", selector: "categoryBody" }, { tagName: "text", selector: "category" });
     const attrs: NonNullable<Node.Metadata["attrs"]> = {
       body: {
         class: "branchscript-node-body",
@@ -488,7 +551,7 @@ export class GraphCanvas {
         stroke: "none",
       },
       kind: {
-        text: this.nodeCaption(node),
+        text: this.nodeCaption(node, false),
         x: 20,
         y: 24,
         refX: 0,
@@ -498,17 +561,19 @@ export class GraphCanvas {
         fontWeight: 700,
         letterSpacing: 1.1,
         textAnchor: "start",
+        textWrap: { width: Math.max(48, size.width - categoryWidth - 54), height: 12, ellipsis: true },
       },
       label: {
         text: node.label,
-        x: 20,
+        x: labelPosition.x,
         y: 44,
         refX: 0,
         refY: 0,
         fill: "#f5f8f5",
-        fontSize: 14,
-        fontWeight: 650,
-        textAnchor: "start",
+        fontFamily: fontFamilyForNode(node),
+        fontSize: node.fontSize ?? 14,
+        fontWeight: fontWeightForNode(node, 650),
+        textAnchor: labelPosition.anchor,
         textVerticalAnchor: "top",
         textWrap: {
           width: size.width - 40,
@@ -517,6 +582,33 @@ export class GraphCanvas {
         },
       },
     };
+    if (node.category) {
+      attrs.categoryBody = {
+        x: size.width - categoryWidth - 14,
+        y: 11,
+        width: categoryWidth,
+        height: 19,
+        rx: 9.5,
+        ry: 9.5,
+        fill: colors.stroke,
+        opacity: 0.18,
+        stroke: colors.stroke,
+        strokeWidth: 1,
+      };
+      attrs.category = {
+        text: node.category.toLocaleUpperCase(),
+        x: size.width - categoryWidth / 2 - 14,
+        y: 24,
+        refX: 0,
+        refY: 0,
+        fill: colors.accent,
+        fontSize: 8,
+        fontWeight: 800,
+        letterSpacing: 0.55,
+        textAnchor: "middle",
+        textWrap: { width: categoryWidth - 14, height: 11, ellipsis: true },
+      };
+    }
     let cursor = 90;
     const addContent = (selector: "text" | "answer", value: string, height: number) => {
       markup.push(
@@ -594,8 +686,97 @@ export class GraphCanvas {
     };
   }
 
+  private textMetadata(node: GraphNode, position: Point): Node.Metadata {
+    const colors = paletteForNode(node);
+    const size = sizeForNode(node);
+    const fontSize = node.fontSize ?? 18;
+    const labelPosition = textPositionForNode(node, size.width, 14);
+    const light = document.documentElement.dataset.theme === "light";
+    const labelY = node.category ? 38 : 12;
+    const categoryWidth = categoryBadgeWidth(node, size.width - 28);
+    const markup: Node.Metadata["markup"] = [
+      { tagName: "rect", selector: "body" },
+      { tagName: "text", selector: "label" },
+    ];
+    if (node.category) markup.push({ tagName: "rect", selector: "categoryBody" }, { tagName: "text", selector: "category" });
+    const attrs: NonNullable<Node.Metadata["attrs"]> = {
+      body: {
+        class: "branchscript-node-body branchscript-text-block",
+        width: size.width,
+        height: size.height,
+        rx: 8,
+        ry: 8,
+        fill: light ? translucentColor(colors.stroke, 0.045) : translucentColor(colors.stroke, 0.06),
+        stroke: translucentColor(colors.stroke, 0.22),
+        strokeWidth: 1,
+        strokeDasharray: "4 5",
+      },
+      label: {
+        text: node.label,
+        x: labelPosition.x,
+        y: labelY,
+        refX: 0,
+        refY: 0,
+        fill: light ? "#25322d" : "#f0f5f2",
+        fontFamily: fontFamilyForNode(node),
+        fontSize,
+        fontWeight: fontWeightForNode(node, 650),
+        textAnchor: labelPosition.anchor,
+        textVerticalAnchor: "top",
+        textWrap: { width: size.width - 28, height: node.text ? Math.max(24, size.height * 0.55) : size.height - 24, ellipsis: true },
+      },
+    };
+    if (node.category) {
+      attrs.categoryBody = {
+        x: 14, y: 10, width: categoryWidth, height: 19, rx: 9.5, ry: 9.5,
+        fill: colors.stroke, opacity: 0.16, stroke: colors.stroke, strokeWidth: 1,
+      };
+      attrs.category = {
+        text: node.category.toLocaleUpperCase(),
+        x: 14 + categoryWidth / 2,
+        y: 23,
+        refX: 0,
+        refY: 0,
+        fill: colors.accent,
+        fontSize: 8,
+        fontWeight: 800,
+        letterSpacing: 0.55,
+        textAnchor: "middle",
+        textWrap: { width: categoryWidth - 14, height: 11, ellipsis: true },
+      };
+    }
+    if (node.text) {
+      markup.push({ tagName: "text", selector: "text" });
+      attrs.text = {
+        text: node.text,
+        x: labelPosition.x,
+        y: Math.min(size.height - 20, labelY + 8 + fontSize * 1.45),
+        refX: 0,
+        refY: 0,
+        fill: light ? "#4e5d56" : "#bbc7c0",
+        fontFamily: fontFamilyForNode(node),
+        fontSize: Math.max(10, Math.round(fontSize * 0.72)),
+        fontWeight: node.fontWeight === "bold" ? 650 : 450,
+        textAnchor: labelPosition.anchor,
+        textVerticalAnchor: "top",
+        textWrap: { width: size.width - 28, height: Math.max(18, size.height - (labelY + 20 + fontSize * 1.45)), ellipsis: true },
+      };
+    }
+    return {
+      id: node.id,
+      x: position.x,
+      y: position.y,
+      width: size.width,
+      height: size.height,
+      zIndex: 2,
+      data: { kind: node.kind, label: node.label },
+      markup,
+      attrs,
+    };
+  }
+
   private decisionMetadata(node: GraphNode, position: Point): Node.Metadata {
-    const colors = node.color ? customNodeColors[node.color] : nodeColors[node.kind];
+    const colors = paletteForNode(node);
     const size = sizeForNode(node);
     const detail = node.answer ?? node.text;
     const markup: Node.Metadata["markup"] = [
@@ -679,7 +860,7 @@ export class GraphCanvas {
   }
 
   private neuronMetadata(node: GraphNode, position: Point): Node.Metadata {
-    const colors = node.color ? customNodeColors[node.color] : nodeColors[node.kind];
+    const colors = paletteForNode(node);
     const size = sizeForNode(node);
     const detail = node.answer ?? node.text;
     const markup: Node.Metadata["markup"] = [
@@ -773,8 +954,9 @@ export class GraphCanvas {
   }
 
   private dataMetadata(node: GraphNode, position: Point): Node.Metadata {
-    const colors = node.color ? customNodeColors[node.color] : nodeColors[node.kind];
+    const colors = paletteForNode(node);
     const size = sizeForNode(node);
+    const categoryWidth = categoryBadgeWidth(node, Math.max(58, size.width * 0.46));
     const isContainer = ["array", "stack", "queue", "list"].includes(node.kind);
     const isRecord = node.kind === "record";
     const cells = isContainer ? dataItems(node) : [];
@@ -785,6 +967,7 @@ export class GraphCanvas {
       { tagName: "text", selector: "kind" },
       { tagName: "text", selector: "label" },
     ];
+    if (node.category) markup.push({ tagName: "rect", selector: "categoryBody" }, { tagName: "text", selector: "category" });
     const values = [...cells, ...fields];
     values.forEach((_, index) => {
       markup.push(
@@ -807,9 +990,10 @@ export class GraphCanvas {
         strokeWidth: node.priority === "high" ? 2.5 : 1.5,
       },
       kind: {
-        text: this.nodeCaption(node), x: 14, y: 22, fill: colors.accent,
+        text: this.nodeCaption(node, false), x: 14, y: 22, fill: colors.accent,
         refX: 0, refY: 0,
         fontSize: 9, fontWeight: 800, letterSpacing: 1, textAnchor: "start",
+        textWrap: { width: Math.max(42, size.width - categoryWidth - 42), height: 11, ellipsis: true },
       },
       label: {
         text: node.label, x: 14, y: 43,
@@ -818,6 +1002,25 @@ export class GraphCanvas {
         textWrap: { width: size.width - 28, height: 20, ellipsis: true },
       },
     };
+    if (node.category) {
+      attrs.categoryBody = {
+        x: size.width - categoryWidth - 12, y: 9, width: categoryWidth, height: 18, rx: 9, ry: 9,
+        fill: colors.stroke, opacity: 0.18, stroke: colors.stroke, strokeWidth: 1,
+      };
+      attrs.category = {
+        text: node.category.toLocaleUpperCase(),
+        x: size.width - categoryWidth / 2 - 12,
+        y: 21.5,
+        refX: 0,
+        refY: 0,
+        fill: colors.accent,
+        fontSize: 7.5,
+        fontWeight: 800,
+        letterSpacing: 0.5,
+        textAnchor: "middle",
+        textWrap: { width: categoryWidth - 12, height: 10, ellipsis: true },
+      };
+    }
 
     values.forEach((value, index) => {
       const horizontal = !vertical && isContainer;
@@ -902,8 +1105,9 @@ export class GraphCanvas {
     };
   }
 
-  private nodeCaption(node: GraphNode): string {
-    return node.status ? `${node.kind} · ${node.status}`.toUpperCase() : node.kind.toUpperCase();
+  private nodeCaption(node: GraphNode, includeCategory = true): string {
+    const parts = [node.kind, node.status, includeCategory ? node.category : undefined].filter(Boolean);
+    return parts.join(" · ").toLocaleUpperCase();
   }
 
   private contentCaption(selector: "text" | "answer"): string {
@@ -982,21 +1186,34 @@ export class GraphCanvas {
     this.scheduleEdgeVisibility();
   }
 
-  applySearch(query: string): void {
+  searchMatches(query: string): string[] {
+    return this.document ? matchingNodeIds(this.document, query) : [];
+  }
+
+  focusSearchResult(nodeId: string): void {
+    const cell = this.graph.getCellById(nodeId);
+    if (!(cell instanceof Node)) return;
+    this.focusNode(nodeId, false);
+    this.zoomToNode(cell);
+  }
+
+  applySearch(query: string, activeId: string | null = null): void {
     if (!this.document) return;
-    const normalized = query.trim().toLocaleLowerCase();
+    const searching = query.trim().length > 0;
     for (const node of this.document.nodes) {
       const cell = this.graph.getCellById(node.id);
       if (!(cell instanceof Node)) continue;
-      const matches =
-        normalized.length === 0 ||
-        node.id.toLocaleLowerCase().includes(normalized) ||
-        node.label.toLocaleLowerCase().includes(normalized) ||
-        node.tags.some((tag) => tag.toLocaleLowerCase().includes(normalized));
+      const matches = !searching || nodeMatchesSearch(node, query);
+      const active = node.id === activeId;
       cell.attr("body/opacity", matches ? 1 : 0.24);
       cell.attr("accent/opacity", matches ? 1 : 0.24);
       cell.attr("kind/opacity", matches ? 1 : 0.3);
       cell.attr("label/opacity", matches ? 1 : 0.3);
+      for (const selector of ["text", "textCaption", "answer", "answerCaption", "feature", "featureBody", "detail", "halo", "category", "categoryBody"]) {
+        cell.attr(`${selector}/opacity`, matches ? 1 : 0.22);
+      }
+      cell.attr("body/strokeWidth", active ? 4 : node.priority === "high" ? 2.5 : node.kind === "text" ? 1 : 1.5);
+      cell.attr("body/class", active ? "branchscript-node-body search-active-node" : node.kind === "text" ? "branchscript-node-body branchscript-text-block" : "branchscript-node-body");
     }
   }
 
@@ -1045,16 +1262,20 @@ export class GraphCanvas {
     if (!this.document) return;
 
     const viewport = this.graph.getGraphArea();
+    const shouldCull = this.document.nodes.length > virtualNodeThreshold;
+    const scale = Math.max(this.graph.zoom(), minCanvasScale);
+    const overscan = Math.min(1800, Math.max(180, 260 / scale));
     for (const edge of this.document.edges) {
       const cell = this.graph.getCellById(edge.id);
       const source = this.graph.getCellById(edge.source);
       const target = this.graph.getCellById(edge.target);
       if (!cell?.isEdge() || !(source instanceof Node) || !(target instanceof Node)) continue;
 
-      const endpointsVisible = Boolean(
-        viewport.intersectsWithRect(source.getBBox()) && viewport.intersectsWithRect(target.getBBox()),
-      );
-      if (cell.isVisible() !== endpointsVisible) cell.setVisible(endpointsVisible);
+      const visible = !shouldCull ||
+        intersectsWithOverscan(viewport, cell.getBBox(), overscan) ||
+        intersectsWithOverscan(viewport, source.getBBox(), overscan) ||
+        intersectsWithOverscan(viewport, target.getBBox(), overscan);
+      if (cell.isVisible() !== visible) cell.setVisible(visible);
     }
   };
 
@@ -1100,10 +1321,7 @@ export class GraphCanvas {
       event.stopPropagation();
 
       const currentScale = this.pendingZoom?.scale ?? this.graph.zoom();
-      const direction = event.deltaY < 0 ? 1 : event.deltaY > 0 ? -1 : 0;
-      if (direction === 0) return;
-
-      const targetScale = Math.max(0.01, Math.min(16, currentScale * 1.05 ** direction));
+      const targetScale = nextWheelZoomScale(currentScale, event.deltaY);
       if (targetScale === currentScale) return;
 
       this.pendingZoom = {

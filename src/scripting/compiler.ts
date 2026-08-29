@@ -7,6 +7,10 @@ import type {
   NodeKind,
   NodeShape,
   NodeStatus,
+  FontFamily,
+  FontWeight,
+  TextAlignment,
+  NodeWidth,
   Priority,
   SourceSpan,
 } from "../domain/graph-document";
@@ -17,6 +21,10 @@ import {
   nodeKinds,
   nodeShapes,
   nodeStatuses,
+  fontFamilies,
+  fontWeights,
+  textAlignments,
+  nodeWidths,
   priorities,
 } from "../domain/graph-document";
 import type { Diagnostic } from "./diagnostic";
@@ -45,8 +53,8 @@ interface PendingConnection extends PendingReference {
   label?: string;
 }
 
-const statementPattern = /^(tree|diagram|topic|question|response|followup|note|example|input|layer|neuron|process|decision|outcome|output|step|choice|result|start|function|operation|condition|loop|return|array|item|stack|queue|list|record|pointer)\s+([A-Za-z][\w-]*)\s+"((?:[^"\\]|\\.)*)"\s*$/;
-const attributePattern = /^@(tag|priority|view|color|shape|status|text|answer|feature|items|fields)\s+(.+?)\s*$/;
+const statementPattern = /^(tree|diagram|topic|question|response|followup|note|text|example|input|layer|neuron|process|decision|outcome|output|step|choice|result|start|function|operation|condition|loop|return|array|item|stack|queue|list|record|pointer)\s+([A-Za-z][\w-]*)\s+"((?:[^"\\]|\\.)*)"\s*$/;
+const attributePattern = /^@(tag|priority|view|color|shape|status|category|width|font|font-size|font-weight|align|text|answer|feature|items|fields)\s+(.+?)\s*$/;
 const referencePattern = /^->\s+([A-Za-z][\w-]*)\s*$/;
 const connectionPattern = /^connect\s+([A-Za-z][\w-]*)\s+->\s+([A-Za-z][\w-]*)(?:\s+"((?:[^"\\]|\\.)*)")?\s*$/;
 const nodeKindSet = new Set<string>(nodeKinds);
@@ -55,6 +63,10 @@ const diagramViewSet = new Set<string>(diagramViews);
 const nodeColorSet = new Set<string>(nodeColors);
 const nodeShapeSet = new Set<string>(nodeShapes);
 const nodeStatusSet = new Set<string>(nodeStatuses);
+const fontFamilySet = new Set<string>(fontFamilies);
+const fontWeightSet = new Set<string>(fontWeights);
+const textAlignmentSet = new Set<string>(textAlignments);
+const nodeWidthSet = new Set<string>(nodeWidths);
 const maxSourceLength = 1_000_000;
 const maxNodes = 2_000;
 const maxEdges = 5_000;
@@ -69,11 +81,12 @@ const kindAliases: Record<string, NodeKind> = {
 };
 
 const allowedChildren: Record<NodeKind, ReadonlySet<NodeKind>> = {
-  topic: new Set(["question", "process", "decision", "note", "example"]),
-  question: new Set(["response", "note", "example"]),
-  response: new Set(["followup", "process", "decision", "outcome", "note", "example"]),
-  followup: new Set(["response", "note", "example"]),
+  topic: new Set(["question", "process", "decision", "note", "text", "example"]),
+  question: new Set(["response", "note", "text", "example"]),
+  response: new Set(["followup", "process", "decision", "outcome", "note", "text", "example"]),
+  followup: new Set(["response", "note", "text", "example"]),
   note: new Set(),
+  text: new Set(),
   example: new Set(),
   input: new Set(["layer", "neuron", "process"]),
   layer: new Set(["layer", "neuron", "output"]),
@@ -386,6 +399,56 @@ export function compileMindTree(source: string): CompileResult {
           );
         } else {
           owner.node.status = value as NodeStatus;
+        }
+      } else if (name === "category") {
+        const decoded = decodeAttributeText(value);
+        if (!decoded || decoded.length > 60) {
+          diagnostics.push(
+            diagnostic("Category must contain 1–60 characters of quoted text.", lineNumber, contentStart + 1, offset + contentStart, offset + rawLine.length),
+          );
+        } else {
+          owner.node.category = decoded;
+        }
+      } else if (name === "width") {
+        if (!nodeWidthSet.has(value)) {
+          diagnostics.push(
+            diagnostic("Width must be compact, normal, or wide.", lineNumber, contentStart + 1, offset + contentStart, offset + rawLine.length),
+          );
+        } else {
+          owner.node.width = value as NodeWidth;
+        }
+      } else if (name === "font") {
+        if (!fontFamilySet.has(value)) {
+          diagnostics.push(
+            diagnostic("Font must be sans, serif, or mono.", lineNumber, contentStart + 1, offset + contentStart, offset + rawLine.length),
+          );
+        } else {
+          owner.node.fontFamily = value as FontFamily;
+        }
+      } else if (name === "font-size") {
+        const fontSize = Number(value);
+        if (!Number.isInteger(fontSize) || fontSize < 10 || fontSize > 48) {
+          diagnostics.push(
+            diagnostic("Font size must be an integer from 10 to 48.", lineNumber, contentStart + 1, offset + contentStart, offset + rawLine.length),
+          );
+        } else {
+          owner.node.fontSize = fontSize;
+        }
+      } else if (name === "font-weight") {
+        if (!fontWeightSet.has(value)) {
+          diagnostics.push(
+            diagnostic("Font weight must be regular, medium, or bold.", lineNumber, contentStart + 1, offset + contentStart, offset + rawLine.length),
+          );
+        } else {
+          owner.node.fontWeight = value as FontWeight;
+        }
+      } else if (name === "align") {
+        if (!textAlignmentSet.has(value)) {
+          diagnostics.push(
+            diagnostic("Text alignment must be left, center, or right.", lineNumber, contentStart + 1, offset + contentStart, offset + rawLine.length),
+          );
+        } else {
+          owner.node.textAlign = value as TextAlignment;
         }
       } else if (name === "text" || name === "answer" || name === "feature") {
         const decoded = decodeAttributeText(value);

@@ -119,7 +119,8 @@ export class BranchScriptApp {
   private sourcePanelCollapsed = false;
   private sourcePanelPointerId: number | null = null;
   private editingNodeId: string | null = null;
-  private draggedShape: NodeShape | null = null;
+  private searchResultIndex = -1;
+  private searchResultQuery = "";
   private pendingShape: NodeShape | null = null;
   private sourceName = "software-interview.mtree";
 
@@ -258,6 +259,7 @@ export class BranchScriptApp {
                 <label class="search-control">
                   <span aria-hidden="true">⌕</span>
                   <input id="node-search" type="search" placeholder="Search nodes" autocomplete="off" />
+                  <output id="node-search-status" aria-live="polite"></output>
                 </label>
               </div>
               <div class="toolbar-group">
@@ -335,6 +337,7 @@ export class BranchScriptApp {
                     <option value="decision">Choice</option>
                     <option value="outcome">Result</option>
                     <option value="note">Note</option>
+                    <option value="text">Text block</option>
                     <option value="input">Input</option>
                     <option value="output">Output</option>
                     <option value="neuron">Neuron</option>
@@ -403,6 +406,50 @@ export class BranchScriptApp {
                       <option value="blocked">Blocked</option>
                     </select>
                   </label>
+                  <label class="field">
+                    <span>Category</span>
+                    <input id="quick-category" name="category" maxlength="60" placeholder="Behavioral, Android, System design…" autocomplete="off" />
+                  </label>
+                  <label class="field">
+                    <span>Card width</span>
+                    <select id="quick-width" name="width">
+                      <option value="">Automatic</option>
+                      <option value="compact">Compact</option>
+                      <option value="normal">Normal</option>
+                      <option value="wide">Wide</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Font</span>
+                    <select id="quick-font" name="font">
+                      <option value="">Automatic</option>
+                      <option value="sans">Sans serif</option>
+                      <option value="serif">Serif</option>
+                      <option value="mono">Monospace</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Font size</span>
+                    <input id="quick-font-size" name="fontSize" type="number" min="10" max="48" step="1" placeholder="14" />
+                  </label>
+                  <label class="field">
+                    <span>Font weight</span>
+                    <select id="quick-font-weight" name="fontWeight">
+                      <option value="">Automatic</option>
+                      <option value="regular">Regular</option>
+                      <option value="medium">Medium</option>
+                      <option value="bold">Bold</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Text alignment</span>
+                    <select id="quick-align" name="align">
+                      <option value="">Automatic</option>
+                      <option value="left">Left</option>
+                      <option value="center">Center</option>
+                      <option value="right">Right</option>
+                    </select>
+                  </label>
                 </div>
                 <button class="button primary field-wide" id="quick-node-submit" type="submit">Add box</button>
               </form>
@@ -427,7 +474,7 @@ export class BranchScriptApp {
                 <section class="lesson"><span>02</span><div><strong>Branch with two spaces</strong><code>  response concise "Keep it focused."</code><p>Indent a line to place it below the previous box.</p></div></section>
                 <section class="lesson"><span>03</span><div><strong>Connect anything</strong><code>connect intro -> concise "choose"</code><p>Use named connections for flows, logic, and neural maps.</p></div></section>
                 <section class="lesson"><span>04</span><div><strong>Add useful content</strong><code>  @text "Brief context"<br />  @answer "Prepared answer"<br />  @feature "Follow-up cue"</code><p>Keep the title short and place recall-ready detail inside the box.</p></div></section>
-                <section class="lesson"><span>05</span><div><strong>Style when needed</strong><code>  @color green<br />  @shape pill<br />  @status active</code><p>Attributes sit directly below their box.</p></div></section>
+                <section class="lesson"><span>05</span><div><strong>Style and categorize</strong><code>  @category "Behavioral"<br />  @width wide<br />  @color green</code><p>Categories receive a consistent automatic color. Use width to improve long-answer readability and color only when you need a manual override.</p></div></section>
                 <section class="lesson data-lesson"><span>DATA</span><div><strong>Show cells and fields</strong><code>array scores "Scores"<br />  @items "8 | 3 | 5 | 1"<br />record user "User"<br />  @fields "id = 42 | name = Ada"</code><p>Use <code>@items</code> for ordered cells and <code>@fields</code> for record rows. Use <code>pointer</code> plus <code>connect</code> to show references.</p></div></section>
                 <div class="syntax-grid">
                   <span><code>step</code> process</span><span><code>condition</code> algorithm branch</span><span><code>array</code> data cells</span><span><code>#</code> comment</span>
@@ -531,7 +578,7 @@ export class BranchScriptApp {
     return shapePalettePresets
       .map(
         (preset) => `
-          <button class="shape-palette-item" type="button" draggable="true" data-shape-preset="${preset.shape}" aria-label="${t("Drag {name} shape", { name: t(preset.name) })}" aria-pressed="false">
+          <button class="shape-palette-item" type="button" data-shape-preset="${preset.shape}" aria-label="${t("Drag {name} shape", { name: t(preset.name) })}" aria-pressed="false">
             <span class="shape-palette-preview ${preset.shape}" aria-hidden="true"></span>
             <span><strong>${preset.name}</strong><small>${preset.shapeName}</small></span>
           </button>
@@ -609,10 +656,19 @@ export class BranchScriptApp {
     for (const button of this.root.querySelectorAll<HTMLButtonElement>("[data-context-action]")) {
       button.addEventListener("click", () => this.runCanvasContextAction(button.dataset.contextAction ?? ""));
     }
-    this.requireElement("node-search").addEventListener("input", (event) => {
+    const nodeSearch = this.requireElement("node-search") as HTMLInputElement;
+    nodeSearch.addEventListener("input", (event) => {
       const search = (event.currentTarget as HTMLInputElement).value;
       this.store.update({ search });
+      this.searchResultIndex = -1;
+      this.searchResultQuery = search;
       this.canvas?.applySearch(search);
+      this.updateSearchStatus(search);
+    });
+    nodeSearch.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      this.navigateSearch(event.shiftKey ? -1 : 1);
     });
     this.root.addEventListener("selectstart", (event) => {
       if (!this.isTextSelectionTarget(event.target)) event.preventDefault();
@@ -671,6 +727,47 @@ export class BranchScriptApp {
     return target instanceof Element && Boolean(target.closest(".cm-editor, input, textarea, [contenteditable='true']"));
   }
 
+  private updateSearchStatus(query: string, activeIndex: number | null = null): void {
+    const output = this.requireElement("node-search-status");
+    const matches = this.canvas?.searchMatches(query) ?? [];
+    if (!query.trim()) {
+      output.textContent = "";
+      output.removeAttribute("title");
+      return;
+    }
+    output.textContent = activeIndex === null || matches.length === 0
+      ? String(matches.length)
+      : `${activeIndex + 1}/${matches.length}`;
+    output.title = t(matches.length === 1 ? "1 search result" : "{count} search results", { count: matches.length });
+  }
+
+  private navigateSearch(direction: 1 | -1): void {
+    const input = this.requireElement("node-search") as HTMLInputElement;
+    const query = input.value.trim();
+    if (!query) return;
+    const matches = this.canvas?.searchMatches(query) ?? [];
+    if (matches.length === 0) {
+      this.searchResultIndex = -1;
+      this.canvas?.applySearch(query);
+      this.updateSearchStatus(query);
+      this.updateStatus(t("No search results"), "error");
+      return;
+    }
+
+    if (this.searchResultQuery !== query || this.searchResultIndex < 0) {
+      this.searchResultIndex = direction === 1 ? 0 : matches.length - 1;
+    } else {
+      this.searchResultIndex = (this.searchResultIndex + direction + matches.length) % matches.length;
+    }
+    this.searchResultQuery = query;
+    const nodeId = matches[this.searchResultIndex];
+    if (!nodeId) return;
+    this.canvas?.applySearch(query, nodeId);
+    this.canvas?.focusSearchResult(nodeId);
+    this.updateSearchStatus(query, this.searchResultIndex);
+    this.updateStatus(t("Search result {current} of {count}", { current: this.searchResultIndex + 1, count: matches.length }), "ok");
+  }
+
   private onSourceChange(source: string): void {
     this.store.update({ source });
     this.updateStatus("Compiling…", "working");
@@ -711,6 +808,7 @@ export class BranchScriptApp {
     );
     if (positions) this.store.update({ positions });
     this.canvas?.applySearch(this.store.get().search);
+    this.updateSearchStatus(this.store.get().search);
     if (this.runnerOpen) {
       this.runPath = [];
       this.canvas?.clearHighlight();
@@ -723,52 +821,120 @@ export class BranchScriptApp {
 
   private bindShapePalette(): void {
     const canvasElement = this.requireElement("graph-canvas");
+    const quickBuilder = this.requireElement("quick-builder");
+    let pointerDrag: {
+      pointerId: number;
+      pointerType: string;
+      shape: NodeShape;
+      button: HTMLButtonElement;
+      startX: number;
+      startY: number;
+      active: boolean;
+      ghost: HTMLElement | null;
+    } | null = null;
+
+    const pointInsideCanvas = (clientX: number, clientY: number): boolean => {
+      const bounds = canvasElement.getBoundingClientRect();
+      if (clientX < bounds.left || clientX > bounds.right || clientY < bounds.top || clientY > bounds.bottom) return false;
+      const target = document.elementFromPoint(clientX, clientY);
+      return target === canvasElement || (target instanceof Element && canvasElement.contains(target));
+    };
+
+    const createGhost = (shape: NodeShape): HTMLElement => {
+      const preset = this.shapePreset(shape);
+      const ghost = document.createElement("div");
+      ghost.className = "shape-drag-ghost";
+      ghost.setAttribute("aria-hidden", "true");
+      const preview = document.createElement("span");
+      preview.className = `shape-palette-preview ${shape}`;
+      const label = document.createElement("strong");
+      label.textContent = preset ? t(preset.name) : shape;
+      ghost.append(preview, label);
+      document.body.append(ghost);
+      return ghost;
+    };
+
+    const finishPointerDrag = (event: PointerEvent, cancelled = false): void => {
+      const drag = pointerDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const dropped = drag.active && !cancelled && pointInsideCanvas(event.clientX, event.clientY);
+      if (drag.active) {
+        event.preventDefault();
+        event.stopPropagation();
+        drag.button.dataset.suppressClick = "true";
+        window.setTimeout(() => delete drag.button.dataset.suppressClick, 0);
+        if (dropped) {
+          const position = this.canvas?.clientPointToGraph(event.clientX, event.clientY);
+          if (position) this.addShapeAt(drag.shape, position);
+        }
+      }
+      try {
+        if (drag.button.hasPointerCapture(event.pointerId)) drag.button.releasePointerCapture(event.pointerId);
+      } catch {
+        // The pointer may already have been released by the browser.
+      }
+      drag.ghost?.remove();
+      delete drag.button.dataset.dragging;
+      canvasElement.classList.remove("shape-drop-target");
+      quickBuilder.classList.remove("shape-pointer-dragging");
+      pointerDrag = null;
+      if (dropped && drag.pointerType === "touch" && window.matchMedia("(max-width: 560px)").matches) {
+        this.closeQuickBuilder(false);
+      }
+    };
+
     for (const button of this.root.querySelectorAll<HTMLButtonElement>("[data-shape-preset]")) {
-      button.addEventListener("dragstart", (event) => {
+      button.addEventListener("pointerdown", (event) => {
+        if (!event.isPrimary || event.button !== 0) return;
         const shape = button.dataset.shapePreset as NodeShape;
         if (!this.shapePreset(shape)) return;
-        this.draggedShape = shape;
-        this.setPendingShape(null);
-        button.dataset.dragging = "true";
-        event.dataTransfer?.setData("application/x-branchscript-shape", shape);
-        if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+        pointerDrag = {
+          pointerId: event.pointerId,
+          pointerType: event.pointerType,
+          shape,
+          button,
+          startX: event.clientX,
+          startY: event.clientY,
+          active: false,
+          ghost: null,
+        };
+        try {
+          button.setPointerCapture(event.pointerId);
+        } catch {
+          // Synthetic pointer events do not always provide capture.
+        }
       });
-      button.addEventListener("dragend", () => {
-        this.draggedShape = null;
-        delete button.dataset.dragging;
-        canvasElement.classList.remove("shape-drop-target");
+      button.addEventListener("pointermove", (event) => {
+        const drag = pointerDrag;
+        if (!drag || drag.pointerId !== event.pointerId || drag.button !== button) return;
+        if (!drag.active && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 7) return;
+        event.preventDefault();
+        if (!drag.active) {
+          drag.active = true;
+          drag.ghost = createGhost(drag.shape);
+          this.setPendingShape(null);
+          button.dataset.dragging = "true";
+          if (drag.pointerType === "touch" && window.matchMedia("(max-width: 560px)").matches) {
+            quickBuilder.classList.add("shape-pointer-dragging");
+          }
+        }
+        if (drag.ghost) {
+          drag.ghost.style.left = `${event.clientX}px`;
+          drag.ghost.style.top = `${event.clientY}px`;
+        }
+        canvasElement.classList.toggle("shape-drop-target", pointInsideCanvas(event.clientX, event.clientY));
       });
+      button.addEventListener("pointerup", (event) => finishPointerDrag(event));
+      button.addEventListener("pointercancel", (event) => finishPointerDrag(event, true));
       button.addEventListener("click", () => {
+        if (button.dataset.suppressClick === "true") return;
         const shape = button.dataset.shapePreset as NodeShape;
         this.setPendingShape(this.pendingShape === shape ? null : shape);
         if (this.pendingShape && window.matchMedia("(max-width: 560px)").matches) this.closeQuickBuilder(false);
       });
     }
-
-    canvasElement.addEventListener("dragenter", (event) => {
-      if (!this.draggedShape) return;
-      event.preventDefault();
-      canvasElement.classList.add("shape-drop-target");
-    });
-    canvasElement.addEventListener("dragover", (event) => {
-      if (!this.draggedShape) return;
-      event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-      canvasElement.classList.add("shape-drop-target");
-    });
-    canvasElement.addEventListener("dragleave", (event) => {
-      if (event.relatedTarget instanceof Element && canvasElement.contains(event.relatedTarget)) return;
-      canvasElement.classList.remove("shape-drop-target");
-    });
-    canvasElement.addEventListener("drop", (event) => {
-      const shape = this.draggedShape;
-      if (!shape) return;
-      event.preventDefault();
-      canvasElement.classList.remove("shape-drop-target");
-      this.draggedShape = null;
-      const position = this.canvas?.clientPointToGraph(event.clientX, event.clientY);
-      if (position) this.addShapeAt(shape, position);
-    });
+    window.addEventListener("pointerup", (event) => finishPointerDrag(event), { capture: true });
+    window.addEventListener("pointercancel", (event) => finishPointerDrag(event, true), { capture: true });
   }
 
   private shapePreset(shape: NodeShape): ShapePalettePreset | undefined {
@@ -861,7 +1027,13 @@ export class BranchScriptApp {
     (this.requireElement("quick-color") as HTMLSelectElement).value = node.color ?? "";
     (this.requireElement("quick-shape") as HTMLSelectElement).value = node.shape ?? "";
     (this.requireElement("quick-status") as HTMLSelectElement).value = node.status ?? "";
-    this.setQuickAdvanced(Boolean(node.answer || node.feature || node.color || node.shape || node.status));
+    (this.requireElement("quick-category") as HTMLInputElement).value = node.category ?? "";
+    (this.requireElement("quick-width") as HTMLSelectElement).value = node.width ?? "";
+    (this.requireElement("quick-font") as HTMLSelectElement).value = node.fontFamily ?? "";
+    (this.requireElement("quick-font-size") as HTMLInputElement).value = node.fontSize ? String(node.fontSize) : "";
+    (this.requireElement("quick-font-weight") as HTMLSelectElement).value = node.fontWeight ?? "";
+    (this.requireElement("quick-align") as HTMLSelectElement).value = node.textAlign ?? "";
+    this.setQuickAdvanced(Boolean(node.answer || node.feature || node.color || node.shape || node.status || node.category || node.width || node.fontFamily || node.fontSize || node.fontWeight || node.textAlign));
     this.requireElement("quick-builder").hidden = false;
     window.setTimeout(() => (this.requireElement("quick-label") as HTMLInputElement).focus(), 0);
   }
@@ -1096,6 +1268,12 @@ export class BranchScriptApp {
     const color = (this.requireElement("quick-color") as HTMLSelectElement).value;
     const shape = (this.requireElement("quick-shape") as HTMLSelectElement).value;
     const status = (this.requireElement("quick-status") as HTMLSelectElement).value;
+    const category = (this.requireElement("quick-category") as HTMLInputElement).value.trim();
+    const width = (this.requireElement("quick-width") as HTMLSelectElement).value;
+    const font = (this.requireElement("quick-font") as HTMLSelectElement).value;
+    const fontSize = (this.requireElement("quick-font-size") as HTMLInputElement).valueAsNumber;
+    const fontWeight = (this.requireElement("quick-font-weight") as HTMLSelectElement).value;
+    const align = (this.requireElement("quick-align") as HTMLSelectElement).value;
     const text = (this.requireElement("quick-text") as HTMLTextAreaElement).value.trim();
     const answer = (this.requireElement("quick-answer") as HTMLTextAreaElement).value.trim();
     const feature = (this.requireElement("quick-feature") as HTMLInputElement).value.trim();
@@ -1107,6 +1285,12 @@ export class BranchScriptApp {
     if (color) lines.push(`  @color ${color}`);
     if (shape) lines.push(`  @shape ${shape}`);
     if (status) lines.push(`  @status ${status}`);
+    if (category) lines.push(`  @category ${JSON.stringify(category)}`);
+    if (width) lines.push(`  @width ${width}`);
+    if (font) lines.push(`  @font ${font}`);
+    if (Number.isInteger(fontSize)) lines.push(`  @font-size ${fontSize}`);
+    if (fontWeight) lines.push(`  @font-weight ${fontWeight}`);
+    if (align) lines.push(`  @align ${align}`);
     if (parent) lines.push(`connect ${parent} -> ${id}`);
     this.appendScript(lines);
     labelInput.value = "";
@@ -1129,6 +1313,12 @@ export class BranchScriptApp {
     const color = (this.requireElement("quick-color") as HTMLSelectElement).value;
     const shape = (this.requireElement("quick-shape") as HTMLSelectElement).value;
     const status = (this.requireElement("quick-status") as HTMLSelectElement).value;
+    const category = (this.requireElement("quick-category") as HTMLInputElement).value.trim();
+    const width = (this.requireElement("quick-width") as HTMLSelectElement).value;
+    const font = (this.requireElement("quick-font") as HTMLSelectElement).value;
+    const fontSize = (this.requireElement("quick-font-size") as HTMLInputElement).valueAsNumber;
+    const fontWeight = (this.requireElement("quick-font-weight") as HTMLSelectElement).value;
+    const align = (this.requireElement("quick-align") as HTMLSelectElement).value;
     const source = this.store.get().source;
     const block = source.slice(node.source.from.offset, node.source.to.offset);
     const existingLines = block.split(/\r?\n/);
@@ -1141,7 +1331,13 @@ export class BranchScriptApp {
     if (color) lines.push(`${attributeIndent}@color ${color}`);
     if (shape) lines.push(`${attributeIndent}@shape ${shape}`);
     if (status) lines.push(`${attributeIndent}@status ${status}`);
-    const editableAttribute = /^\s+@(text|answer|feature|color|shape|status)\b/;
+    if (category) lines.push(`${attributeIndent}@category ${JSON.stringify(category)}`);
+    if (width) lines.push(`${attributeIndent}@width ${width}`);
+    if (font) lines.push(`${attributeIndent}@font ${font}`);
+    if (Number.isInteger(fontSize)) lines.push(`${attributeIndent}@font-size ${fontSize}`);
+    if (fontWeight) lines.push(`${attributeIndent}@font-weight ${fontWeight}`);
+    if (align) lines.push(`${attributeIndent}@align ${align}`);
+    const editableAttribute = /^\s+@(text|answer|feature|color|shape|status|category|width|font|font-size|font-weight|align)\b/;
     lines.push(...existingLines.slice(1).filter((line) => !editableAttribute.test(line)));
     const lineBreak = source.includes("\r\n") ? "\r\n" : "\n";
     const updatedSource = `${source.slice(0, node.source.from.offset)}${lines.join(lineBreak)}${source.slice(node.source.to.offset)}`;
@@ -1273,6 +1469,8 @@ export class BranchScriptApp {
     })}`;
     inspector.append(kind, heading, meta);
     const details = [
+      ["Category", node.category],
+      ["Card width", node.width],
       ["Context", node.text],
       ["Prepared answer", node.answer],
       [this.runnerFeatureLabel(this.store.get().document?.view ?? "tree"), node.feature],

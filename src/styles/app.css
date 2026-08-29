@@ -743,6 +743,34 @@ a.button {
   font-size: 11px;
 }
 
+.search-control output {
+  min-width: 23px;
+  padding: 2px 5px;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--accent-strong);
+  font-size: 9px;
+  font-weight: 750;
+  text-align: center;
+}
+
+.search-control output:empty {
+  display: none;
+}
+
+.x6-node .search-active-node {
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--accent) 78%, transparent));
+}
+
+.x6-node .branchscript-text-block {
+  transition: stroke-opacity 120ms ease, fill-opacity 120ms ease;
+}
+
+.x6-node:hover .branchscript-text-block {
+  stroke-opacity: 0.72;
+  fill-opacity: 0.85;
+}
+
 .graph-canvas {
   position: relative;
   width: 100%;
@@ -1263,7 +1291,9 @@ a.button {
   background: var(--surface-raised);
   color: var(--text);
   text-align: left;
+  touch-action: none;
   cursor: grab;
+  user-select: none;
 }
 
 .shape-palette-item:hover,
@@ -1276,6 +1306,36 @@ a.button {
 .shape-palette-item[data-dragging="true"] {
   opacity: 0.62;
   cursor: grabbing;
+}
+
+.shape-drag-ghost {
+  position: fixed;
+  z-index: 150;
+  display: grid;
+  width: 116px;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 72%, var(--border));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: 0 14px 34px var(--shadow);
+  color: var(--text);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  backdrop-filter: blur(12px);
+}
+
+.shape-drag-ghost .shape-palette-preview {
+  width: 50px;
+}
+
+.shape-drag-ghost strong {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shape-palette-item > span:last-child {
@@ -1356,6 +1416,10 @@ a.button {
   gap: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
+}
+
+.quick-advanced[hidden] {
+  display: none;
 }
 
 .field {
@@ -2112,6 +2176,12 @@ a.button {
   .shape-palette-item {
     min-height: 64px;
     cursor: pointer;
+  }
+
+  .quick-builder.shape-pointer-dragging {
+    opacity: 0.12;
+    pointer-events: none;
+    transform: translateX(calc(100% + 18px));
   }
 
   .quick-form {

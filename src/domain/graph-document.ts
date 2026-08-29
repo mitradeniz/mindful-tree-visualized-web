@@ -6,6 +6,7 @@ export const nodeKinds = [
   "response",
   "followup",
   "note",
+  "text",
   "example",
   "input",
   "layer",
@@ -34,6 +35,10 @@ export const diagramViews = ["tree", "flow", "neural", "logic", "algorithm", "da
 export const nodeColors = ["green", "blue", "amber", "purple", "red", "gray"] as const;
 export const nodeShapes = ["card", "pill", "diamond", "circle"] as const;
 export const nodeStatuses = ["idea", "active", "done", "blocked"] as const;
+export const fontFamilies = ["sans", "serif", "mono"] as const;
+export const fontWeights = ["regular", "medium", "bold"] as const;
+export const textAlignments = ["left", "center", "right"] as const;
+export const nodeWidths = ["compact", "normal", "wide"] as const;
 
 export const sourcePointSchema = z.object({
   offset: z.number().int().nonnegative(),
@@ -55,6 +60,7 @@ export const graphNodeSchema = z.object({
   text: z.string().min(1).max(420).optional(),
   answer: z.string().min(1).max(600).optional(),
   feature: z.string().min(1).max(120).optional(),
+  category: z.string().min(1).max(60).optional(),
   items: z.array(z.string().min(1).max(80)).max(8).optional(),
   fields: z.array(z.string().min(1).max(80)).max(8).optional(),
   parentId: identifierSchema.optional(),
@@ -63,6 +69,11 @@ export const graphNodeSchema = z.object({
   color: z.enum(nodeColors).optional(),
   shape: z.enum(nodeShapes).optional(),
   status: z.enum(nodeStatuses).optional(),
+  fontFamily: z.enum(fontFamilies).optional(),
+  fontSize: z.number().int().min(10).max(48).optional(),
+  fontWeight: z.enum(fontWeights).optional(),
+  textAlign: z.enum(textAlignments).optional(),
+  width: z.enum(nodeWidths).optional(),
   source: sourceSpanSchema,
 });
 
@@ -89,6 +100,10 @@ export type DiagramView = (typeof diagramViews)[number];
 export type NodeColor = (typeof nodeColors)[number];
 export type NodeShape = (typeof nodeShapes)[number];
 export type NodeStatus = (typeof nodeStatuses)[number];
+export type FontFamily = (typeof fontFamilies)[number];
+export type FontWeight = (typeof fontWeights)[number];
+export type TextAlignment = (typeof textAlignments)[number];
+export type NodeWidth = (typeof nodeWidths)[number];
 export type SourcePoint = z.infer<typeof sourcePointSchema>;
 export type SourceSpan = z.infer<typeof sourceSpanSchema>;
 export type GraphNode = z.infer<typeof graphNodeSchema>;

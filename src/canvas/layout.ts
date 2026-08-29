@@ -8,33 +8,55 @@ export interface NodeSize {
   height: number;
 }
 
+function sizedWidth(node: GraphNode, base: number, minimum = 160, maximum = 560): number {
+  const scale = { compact: 0.82, normal: 1, wide: 1.36 }[node.width ?? "normal"];
+  return Math.min(maximum, Math.max(minimum, Math.round(base * scale)));
+}
+
 export function sizeForNode(node: GraphNode): NodeSize {
   const rich = Boolean(node.text || node.answer || node.feature);
-  if (node.kind === "neuron") return rich ? { width: 164, height: 164 } : { width: 126, height: 126 };
+  if (node.kind === "text") {
+    const fontSize = node.fontSize ?? 18;
+    const automaticWidth = Math.min(520, Math.max(180, Math.round(fontSize * 0.58 * Math.min(42, Math.max(12, node.label.length)) + 36)));
+    const width = sizedWidth(node, automaticWidth, 160, 680);
+    const charactersPerLine = Math.max(8, Math.floor((width - 28) / (fontSize * 0.56)));
+    const labelLines = Math.max(1, Math.ceil(node.label.length / charactersPerLine));
+    const detailLines = node.text ? Math.max(1, Math.ceil(node.text.length / Math.max(12, charactersPerLine * 1.35))) : 0;
+    const categoryHeight = node.category ? 24 : 0;
+    return { width, height: Math.max(64 + categoryHeight, Math.round(24 + categoryHeight + labelLines * fontSize * 1.3 + detailLines * Math.max(12, fontSize * 0.75) * 1.35)) };
+  }
+  if (node.kind === "neuron") {
+    const diameter = sizedWidth(node, rich ? 164 : 126, 104, 212);
+    return { width: diameter, height: diameter };
+  }
   if (node.kind === "decision" || node.kind === "condition") {
-    return rich ? { width: 286, height: 190 } : { width: 230, height: 144 };
+    return rich
+      ? { width: sizedWidth(node, 286, 230, 430), height: 190 }
+      : { width: sizedWidth(node, 230, 188, 350), height: 144 };
   }
   if (["array", "stack", "queue", "list"].includes(node.kind)) {
     const itemCount = Math.max(1, dataItems(node).length);
     if (node.kind === "stack") {
-      return { width: rich ? 286 : 250, height: (rich ? 124 : 84) + itemCount * 22 };
+      return { width: sizedWidth(node, rich ? 286 : 250), height: (rich ? 124 : 84) + itemCount * 22 };
     }
-    return { width: rich ? 286 : 250, height: rich ? 196 : 132 };
+    return { width: sizedWidth(node, rich ? 286 : 250), height: rich ? 196 : 132 };
   }
   if (node.kind === "record") {
     const fieldCount = Math.max(1, dataFields(node).length);
     return {
-      width: rich ? 250 : 210,
+      width: sizedWidth(node, rich ? 250 : 210),
       height: Math.max(rich ? 184 : 112, 56 + fieldCount * 22 + (rich ? 76 : 0)),
     };
   }
-  if (node.kind === "item") return { width: rich ? 250 : 210, height: rich ? 150 : 88 };
-  if (node.kind === "pointer") return { width: rich ? 220 : 178, height: rich ? 132 : 68 };
-  if (["input", "output", "start", "return"].includes(node.kind) && !rich) return { width: 212, height: 76 };
+  if (node.kind === "item") return { width: sizedWidth(node, rich ? 250 : 210), height: rich ? 150 : 88 };
+  if (node.kind === "pointer") return { width: sizedWidth(node, rich ? 220 : 178), height: rich ? 132 : 68 };
+  if (["input", "output", "start", "return"].includes(node.kind) && !rich) return { width: sizedWidth(node, 212), height: 76 };
   const contentHeight = (node.text ? 50 : 0) + (node.answer ? 64 : 0) + (node.feature ? 30 : 0);
+  const width = sizedWidth(node, rich ? 324 : 292);
+  const labelCharactersPerLine = Math.max(22, Math.floor(44 * (width / 292)));
   return {
-    width: rich ? 324 : 292,
-    height: Math.min(290, Math.max(96, 96 + Math.ceil(node.label.length / 44) * 20 + contentHeight)),
+    width,
+    height: Math.min(290, Math.max(96, 96 + Math.ceil(node.label.length / labelCharactersPerLine) * 20 + contentHeight)),
   };
 }
 

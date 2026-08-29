@@ -46,6 +46,7 @@ Every node has a keyword, a stable identifier, and quoted text.
 | `response` | A response path you may choose |
 | `followup` | A likely question after a response |
 | `note` | A private reminder |
+| `text` | A free text block for headings, explanations, and canvas notes |
 | `example` | Evidence or a concrete story to mention |
 | `input` | The beginning or input of a graph |
 | `layer` | A named grouping or transformation stage |
@@ -94,7 +95,8 @@ Visual and workflow attributes are optional:
 
 ```text
 step prototype "Build a focused prototype"
-  @color green
+  @category "Product delivery"
+  @width wide
   @shape pill
   @status active
 ```
@@ -102,10 +104,40 @@ step prototype "Build a focused prototype"
 | Attribute | Values |
 | --- | --- |
 | `@color` | `green`, `blue`, `amber`, `purple`, `red`, `gray` |
+| `@category` | Quoted category label, up to 60 characters |
+| `@width` | `compact`, `normal`, `wide` |
 | `@shape` | `card`, `pill`, `diamond`, `circle` |
 | `@status` | `idea`, `active`, `done`, `blocked` |
 | `@priority` | `low`, `normal`, `high` |
 | `@tag` | One or more searchable tags |
+| `@font` | `sans`, `serif`, `mono` |
+| `@font-size` | An integer from `10` through `48` |
+| `@font-weight` | `regular`, `medium`, `bold` |
+| `@align` | `left`, `center`, `right` |
+
+Categories create a visible badge and a deterministic color shared by every node with the same category. An explicit `@color` overrides the category color. Width presets change wrapping without changing the text itself:
+
+```text
+question project "Describe a difficult project."
+  @category "Behavioral"
+  @width wide
+  response incident "Production incident"
+    @category "Behavioral"
+    @width wide
+```
+
+Use categories for a small number of meaningful groups—such as `Opening`, `Technical`, `Behavioral`, `Role fit`, and `Closing`. Use tags for detailed search terms; too many visual categories reduce rather than improve readability.
+
+Free text blocks can act as headings or annotations without looking like workflow steps:
+
+```text
+text reminder "Pause before answering"
+  @text "Take one breath, then lead with the result."
+  @font serif
+  @font-size 28
+  @font-weight bold
+  @align center
+```
 
 Content attributes keep the node title short while placing useful material inside the box:
 

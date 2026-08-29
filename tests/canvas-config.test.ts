@@ -6,14 +6,15 @@ const canvasSource = readFileSync("src/canvas/graph-canvas.ts", "utf8");
 describe("large canvas navigation", () => {
   it("keeps a useful zoom range for large diagrams", () => {
     expect(canvasSource).toContain("enabled: false");
-    expect(canvasSource).toContain("minScale: 0.01");
-    expect(canvasSource).toContain("maxScale: 16");
+    expect(canvasSource).toContain("minScale: minCanvasScale");
+    expect(canvasSource).toContain("maxScale: maxCanvasScale");
     expect(canvasSource).toContain("zoomToFit({ padding: 48, minScale: 0.01");
   });
 
   it("handles modifier-wheel zoom in the canvas", () => {
     expect(canvasSource).toContain("event.ctrlKey || event.metaKey");
     expect(canvasSource).toContain("this.pendingZoom =");
+    expect(canvasSource).toContain("nextWheelZoomScale(currentScale, event.deltaY)");
     expect(canvasSource).toContain("this.graph.zoom(pendingZoom.scale");
     expect(canvasSource).toContain("center: this.graph.clientToGraph");
   });
@@ -40,11 +41,13 @@ describe("large canvas navigation", () => {
     expect(canvasSource).toContain("this.graph.zoomToRect(bounds");
   });
 
-  it("does not render dangling or off-screen endpoint edges", () => {
+  it("does not render dangling edges and keeps nearby connections stable", () => {
     expect(canvasSource).toContain("if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) continue;");
-    expect(canvasSource).toContain("viewport.intersectsWithRect(source.getBBox())");
-    expect(canvasSource).toContain("viewport.intersectsWithRect(target.getBBox())");
-    expect(canvasSource).toContain("cell.isVisible() !== endpointsVisible");
+    expect(canvasSource).toContain("const shouldCull = this.document.nodes.length > virtualNodeThreshold");
+    expect(canvasSource).toContain("intersectsWithOverscan(viewport, cell.getBBox(), overscan)");
+    expect(canvasSource).toContain("intersectsWithOverscan(viewport, source.getBBox(), overscan)");
+    expect(canvasSource).toContain("intersectsWithOverscan(viewport, target.getBBox(), overscan)");
+    expect(canvasSource).toContain("cell.isVisible() !== visible");
     expect(canvasSource).toContain("requestAnimationFrame");
   });
 
