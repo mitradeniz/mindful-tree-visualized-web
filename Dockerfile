@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:22.23.2-alpine3.24 AS build
+FROM node:22.23.2-bookworm-slim AS build
 
 WORKDIR /app
 
@@ -14,14 +14,6 @@ COPY faq ./faq
 COPY public ./public
 COPY examples ./examples
 COPY src ./src
-
-RUN echo "Docker source fingerprint" \
-    && sha256sum /app/index.html \
-        /app/app/index.html \
-        /app/vite.config.ts \
-        /app/src/landing.ts \
-    && grep -n 'src="/src/' /app/index.html /app/app/index.html \
-    && sed -n '1,20p' /app/src/landing.ts
 
 RUN npm run build \
     && test -f dist/index.html
