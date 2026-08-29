@@ -30,14 +30,19 @@ test("renders the example script as a thought tree", async ({ page }) => {
 test("resets the editor viewport for examples and can start blank", async ({ page }) => {
   await page.goto("/app/");
   const scroller = page.locator(".cm-scroller");
-  await scroller.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await scroller.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    element.scrollLeft = element.scrollWidth;
+  });
 
   await page.getByRole("button", { name: "Load Flow template" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Replace" }).click();
 
   await expect(page.locator("#source-file-name")).toHaveText("idea-to-launch.mtree");
   await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeLessThan(2);
+  await expect.poll(() => scroller.evaluate((element) => element.scrollLeft)).toBeLessThan(2);
   await expect.poll(() => page.locator("#script-editor").evaluate((element) => element.scrollTop)).toBe(0);
+  await expect.poll(() => page.locator("#script-editor").evaluate((element) => element.scrollLeft)).toBe(0);
   await expect(page.locator(".cm-line").first()).toContainText("diagram launch_flow");
 
   await page.getByRole("button", { name: "Start blank project" }).click();
@@ -53,6 +58,21 @@ test("resets the editor viewport for examples and can start blank", async ({ pag
   await page.locator("#quick-node-submit").click();
   await expect(page.locator("#graph-canvas")).toHaveAttribute("data-node-count", "1");
   await expect(page.locator(".cm-content")).toContainText('process first_thought "First thought"');
+});
+
+test("mounts every node and edge in the tree playground example", async ({ page }) => {
+  await page.goto("/app/");
+  await page.getByRole("button", { name: "Load Tree template" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Replace" }).click();
+
+  const canvas = page.locator("#graph-canvas");
+  await expect(canvas).toHaveAttribute("data-node-count", "9");
+  await page.getByRole("button", { name: "Fit view" }).click();
+  await expect(canvas.locator(".x6-node")).toHaveCount(9);
+  await expect(canvas.locator(".x6-edge")).toHaveCount(8);
+  await expect(canvas.locator('.x6-node[data-cell-id="architecture"]')).toBeVisible();
+  await expect(canvas.locator('.x6-node[data-cell-id="collaboration"]')).toBeVisible();
+  await expect(canvas.locator('.x6-node[data-cell-id="stack_answer"]')).toBeVisible();
 });
 
 test("shows System Design as a disabled coming-soon view", async ({ page }) => {
@@ -254,6 +274,62 @@ test("adds a styled box without writing script", async ({ page }) => {
   await expect(page.locator("#graph-canvas .x6-node").last()).toContainText("I would answer");
 });
 
+test("drops a shape onto the canvas and writes it back to source", async ({ page }) => {
+  await page.goto("/app/");
+  await expect(page.locator("#graph-canvas")).toHaveAttribute("data-node-count", "16");
+  await page.waitForTimeout(120);
+  await page.getByRole("button", { name: "Open visual builder" }).click();
+
+  const canvas = page.locator("#graph-canvas");
+  const canvasBox = await canvas.boundingBox();
+  expect(canvasBox).not.toBeNull();
+  if (!canvasBox) return;
+  const targetPosition = { x: Math.round(canvasBox.width * 0.34), y: Math.round(canvasBox.height * 0.62) };
+
+  await page.getByRole("button", { name: "Drag Step shape" }).dragTo(canvas, { targetPosition });
+
+  await expect(canvas).toHaveAttribute("data-node-count", "17");
+  await expect(page.locator(".cm-content")).toContainText('process new_step "New step"');
+  await expect(page.locator(".cm-content")).toContainText("@shape card");
+  const added = canvas.locator('.x6-node[data-cell-id="new_step"]');
+  await expect(added).toBeVisible();
+  const addedBox = await added.boundingBox();
+  expect(addedBox).not.toBeNull();
+  if (!addedBox) return;
+  expect(addedBox.x + addedBox.width / 2).toBeGreaterThan(canvasBox.x);
+  expect(addedBox.x + addedBox.width / 2).toBeLessThan(canvasBox.x + canvasBox.width);
+  expect(addedBox.y + addedBox.height / 2).toBeGreaterThan(canvasBox.y);
+  expect(addedBox.y + addedBox.height / 2).toBeLessThan(canvasBox.y + canvasBox.height);
+});
+
+test("places a selected shape with a canvas tap on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/app/");
+  await page.getByRole("button", { name: "Open visual builder" }).click();
+  await page.getByRole("button", { name: "Drag Choice shape" }).click();
+
+  await expect(page.locator("#quick-builder")).toBeHidden();
+  await expect(page.locator("#shape-placement-cue")).toContainText("Tap canvas to place Choice");
+  const canvas = page.locator("#graph-canvas");
+  const canvasBox = await canvas.boundingBox();
+  expect(canvasBox).not.toBeNull();
+  if (!canvasBox) return;
+  const touch = {
+    pointerId: 41,
+    pointerType: "touch",
+    isPrimary: true,
+    clientX: canvasBox.x + canvasBox.width / 2,
+    clientY: canvasBox.y + canvasBox.height * 0.72,
+  };
+  await canvas.dispatchEvent("pointerdown", { ...touch, buttons: 1 });
+  await canvas.dispatchEvent("pointerup", touch);
+
+  await expect(canvas).toHaveAttribute("data-node-count", "17");
+  await expect(page.locator(".cm-content")).toContainText('decision new_decision "New decision"');
+  await expect(page.locator(".cm-content")).toContainText("@shape diamond");
+  await expect(page.locator("#shape-placement-cue")).toBeHidden();
+});
+
 test("edits an existing box after double click", async ({ page }) => {
   await page.goto("/app/");
   await loadCompactAnswer(page);
@@ -447,14 +523,41 @@ test("keeps the localized workspace inside a mobile viewport", async ({ page }) 
   await expect(page.locator("#workspace-resizer")).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
+  const canvas = page.locator("#graph-canvas");
   const node = page.locator("#graph-canvas .x6-node").first();
+  const nodeId = await node.getAttribute("data-cell-id");
+  expect(nodeId).toBeTruthy();
+  const canvasBox = await canvas.boundingBox();
+  const beforePan = await node.boundingBox();
+  expect(canvasBox).not.toBeNull();
+  expect(beforePan).not.toBeNull();
+  if (!canvasBox || !beforePan) return;
+
+  const panStart = { x: canvasBox.x + 40, y: canvasBox.y + canvasBox.height / 2 };
+  await canvas.dispatchEvent("pointerdown", { pointerId: 11, pointerType: "touch", isPrimary: true, buttons: 1, clientX: panStart.x, clientY: panStart.y });
+  await canvas.dispatchEvent("pointermove", { pointerId: 11, pointerType: "touch", isPrimary: true, buttons: 1, clientX: panStart.x + 64, clientY: panStart.y + 42 });
+  await canvas.dispatchEvent("pointerup", { pointerId: 11, pointerType: "touch", isPrimary: true, clientX: panStart.x + 64, clientY: panStart.y + 42 });
+  await expect.poll(async () => (await node.boundingBox())?.x ?? 0).toBeGreaterThan(beforePan.x + 45);
+  await expect.poll(async () => (await node.boundingBox())?.y ?? 0).toBeGreaterThan(beforePan.y + 28);
+
+  const beforePinch = await node.boundingBox();
+  expect(beforePinch).not.toBeNull();
+  if (!beforePinch) return;
+  const pinchCenter = { x: canvasBox.x + canvasBox.width / 2, y: canvasBox.y + canvasBox.height / 2 };
+  await canvas.dispatchEvent("pointerdown", { pointerId: 21, pointerType: "touch", isPrimary: true, buttons: 1, clientX: pinchCenter.x - 40, clientY: pinchCenter.y });
+  await canvas.dispatchEvent("pointerdown", { pointerId: 22, pointerType: "touch", isPrimary: false, buttons: 1, clientX: pinchCenter.x + 40, clientY: pinchCenter.y });
+  await canvas.dispatchEvent("pointermove", { pointerId: 22, pointerType: "touch", isPrimary: false, buttons: 1, clientX: pinchCenter.x + 100, clientY: pinchCenter.y });
+  await canvas.dispatchEvent("pointerup", { pointerId: 22, pointerType: "touch", isPrimary: false, clientX: pinchCenter.x + 100, clientY: pinchCenter.y });
+  await canvas.dispatchEvent("pointerup", { pointerId: 21, pointerType: "touch", isPrimary: true, clientX: pinchCenter.x - 40, clientY: pinchCenter.y });
+  await expect.poll(async () => (await node.boundingBox())?.width ?? 0).toBeGreaterThan(beforePinch.width * 1.4);
+
   const box = await node.boundingBox();
   expect(box).not.toBeNull();
   if (!box) return;
-  const touch = { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2 };
+  const touch = { pointerId: 31, pointerType: "touch", isPrimary: true, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2 };
   await node.dispatchEvent("pointerdown", touch);
   await node.dispatchEvent("pointerup", touch);
-  await expect(page.locator("#node-inspector")).not.toContainText("Select a node");
+  await expect(page.locator("#node-inspector")).toContainText(nodeId ?? "");
 });
 
 test("prevents browser text selection outside editable controls", async ({ page }) => {

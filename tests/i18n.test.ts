@@ -21,6 +21,7 @@ describe("interface localization", () => {
     setLocale("tr");
 
     expect(t("Added {name}", { name: "Karar" })).toBe("Karar eklendi");
+    expect(t("Tap canvas to place {name}", { name: "Seçim" })).toBe("Seçim yerleştirmek için tuvale dokun");
     expect(t("{count} nodes", { count: 4 })).toBe("4 kutu");
     expect(t("Replace current diagram?")).toBe("Mevcut diyagram değiştirilsin mi?");
   });

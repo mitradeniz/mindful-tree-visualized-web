@@ -18,6 +18,15 @@ describe("large canvas navigation", () => {
     expect(canvasSource).toContain("center: this.graph.clientToGraph");
   });
 
+  it("supports mobile pan, pinch zoom, and touch selection", () => {
+    expect(canvasSource).toContain("private readonly activeTouches");
+    expect(canvasSource).toContain("onCanvasPointerMove");
+    expect(canvasSource).toContain("this.graph.translateBy(pending.dx, pending.dy)");
+    expect(canvasSource).toContain("currentDistance / previousDistance");
+    expect(canvasSource).toContain("this.graph.zoom(pending.scale");
+    expect(canvasSource).toContain("touchDoubleTapDelay");
+  });
+
   it("focuses and edits a node on double-click", () => {
     expect(canvasSource).toContain("preventDefaultDblClick: true");
     expect(canvasSource).toContain("e.preventDefault();");
@@ -41,5 +50,8 @@ describe("large canvas navigation", () => {
 
   it("uses virtual rendering for large diagrams", () => {
     expect(canvasSource).toContain("virtual: true");
+    expect(canvasSource).toContain("const virtualNodeThreshold = 200");
+    expect(canvasSource).toContain("document.nodes.length > virtualNodeThreshold");
+    expect(canvasSource).toContain("this.graph.disableVirtualRender()");
   });
 });

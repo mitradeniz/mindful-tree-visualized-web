@@ -85,6 +85,9 @@ export class ScriptEditor {
     this.view.dispatch({
       ...(current === source ? {} : { changes: { from: 0, to: current.length, insert: source } }),
       ...(options.scrollToTop ? { selection: { anchor: 0 } } : {}),
+      ...(options.scrollToTop
+        ? { effects: EditorView.scrollIntoView(0, { x: "start", y: "start", xMargin: 0, yMargin: 0 }) }
+        : {}),
     });
     if (options.scrollToTop) this.resetViewport();
   }
@@ -130,13 +133,19 @@ export class ScriptEditor {
 
   private resetViewport(): void {
     const reset = () => {
-      this.container.scrollTop = 0;
-      this.container.scrollLeft = 0;
-      this.view.scrollDOM.scrollTop = 0;
-      this.view.scrollDOM.scrollLeft = 0;
+      this.container.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      this.view.scrollDOM.scrollTo({ top: 0, left: 0, behavior: "instant" });
     };
     reset();
-    window.requestAnimationFrame(reset);
+    this.view.requestMeasure({
+      read: () => undefined,
+      write: reset,
+      key: "branchscript-reset-viewport",
+    });
+    window.requestAnimationFrame(() => {
+      reset();
+      window.requestAnimationFrame(reset);
+    });
   }
 
   private toEditorDiagnostics(): EditorDiagnostic[] {

@@ -1,5 +1,4 @@
 import source from "../examples/software-interview.mtree?raw";
-import whoopSource from "../examples/whoop-android-interview.mtree?raw";
 import { describe, expect, it } from "vitest";
 import { blankProjectSource, playgroundPresets } from "../src/playground/presets";
 import { compileMindTree } from "../src/scripting/compiler";
@@ -12,17 +11,6 @@ describe("compileMindTree", () => {
     expect(result.document?.title).toBe("Software Engineering Interview");
     expect(result.document?.nodes.length).toBeGreaterThan(10);
     expect(result.document?.nodes.find((node) => node.id === "concise")?.priority).toBe("high");
-  });
-
-  it("compiles the WHOOP Android interview tree", () => {
-    const result = compileMindTree(whoopSource);
-
-    expect(result.diagnostics).toEqual([]);
-    expect(result.document?.title).toBe("WHOOP Android Engineer Interview Simulation");
-    expect(result.document?.view).toBe("tree");
-    expect(result.document?.nodes.find((node) => node.id === "whoop_answer")?.answer).toContain("health data");
-    expect(result.document?.nodes.find((node) => node.id === "whoop_engineering")?.kind).toBe("followup");
-    expect(result.document?.nodes.find((node) => node.id === "success_question")?.kind).toBe("response");
   });
 
   it("reports duplicate identifiers", () => {

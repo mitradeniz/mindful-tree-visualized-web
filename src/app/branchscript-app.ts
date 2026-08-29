@@ -19,7 +19,7 @@ import {
   type CloudDiagram,
 } from "../auth/cloud-api";
 import { GraphCanvas } from "../canvas/graph-canvas";
-import type { DiagramView, GraphDocument, GraphNode, NodeKind } from "../domain/graph-document";
+import type { DiagramView, GraphDocument, GraphNode, NodeKind, NodeShape } from "../domain/graph-document";
 import { ScriptEditor } from "../editor/script-editor";
 import { getLocale, localeOptions, localizeElement, setLocale, t, type Locale } from "../i18n";
 import { blankProjectSource, playgroundPresets, presetForView } from "../playground/presets";
@@ -50,6 +50,21 @@ interface SourcePanelLayout {
   ratio: number;
   collapsed: boolean;
 }
+
+interface ShapePalettePreset {
+  shape: NodeShape;
+  kind: NodeKind;
+  name: string;
+  shapeName: string;
+  label: string;
+}
+
+const shapePalettePresets: readonly ShapePalettePreset[] = [
+  { shape: "card", kind: "process", name: "Step", shapeName: "Card", label: "New step" },
+  { shape: "pill", kind: "start", name: "Start", shapeName: "Pill", label: "New start" },
+  { shape: "diamond", kind: "decision", name: "Choice", shapeName: "Diamond", label: "New decision" },
+  { shape: "circle", kind: "neuron", name: "Node", shapeName: "Circle", label: "New node" },
+];
 
 const sourcePanelLayoutKey = "branchscript-source-panel-layout";
 const maxImportBytes = 1_048_576;
@@ -104,6 +119,8 @@ export class BranchScriptApp {
   private sourcePanelCollapsed = false;
   private sourcePanelPointerId: number | null = null;
   private editingNodeId: string | null = null;
+  private draggedShape: NodeShape | null = null;
+  private pendingShape: NodeShape | null = null;
   private sourceName = "software-interview.mtree";
 
   constructor(private readonly root: HTMLElement) {}
@@ -137,6 +154,7 @@ export class BranchScriptApp {
     this.canvas = new GraphCanvas(canvasElement, minimapElement, {
       onSelect: (nodeIds) => this.onNodesSelected(nodeIds),
       onQuickAdd: () => this.openQuickBuilder(),
+      onCanvasTap: (position) => this.placePendingShape(position),
       onNodeEdit: (nodeId) => this.openNodeEditor(nodeId),
       onContextMenu: (request) => this.openCanvasContextMenu(request),
       onPositionsChange: (positions) => {
@@ -254,6 +272,10 @@ export class BranchScriptApp {
               </div>
             </div>
             <div id="graph-canvas" class="graph-canvas"></div>
+            <div id="shape-placement-cue" class="shape-placement-cue" hidden>
+              <span id="shape-placement-label"></span>
+              <button class="icon-button" id="shape-placement-cancel" type="button" aria-label="Cancel shape placement">×</button>
+            </div>
             <div id="canvas-context-menu" class="canvas-context-menu" role="menu" aria-label="Canvas actions" hidden>
               <button type="button" role="menuitem" data-context-action="add">＋ Add box here</button>
               <button type="button" role="menuitem" data-context-action="add-connected" data-node-context>Add connected box</button>
@@ -289,6 +311,15 @@ export class BranchScriptApp {
                 </div>
                 <button class="icon-button" id="quick-builder-close" type="button" aria-label="Close visual builder">×</button>
               </header>
+              <section class="shape-palette" aria-labelledby="shape-palette-title">
+                <div class="shape-palette-heading">
+                  <strong id="shape-palette-title">Drag shapes onto the canvas</strong>
+                  <span>Drag to place. On touch, choose a shape and tap the canvas.</span>
+                </div>
+                <div class="shape-palette-list">
+                  ${this.shapePaletteMarkup()}
+                </div>
+              </section>
               <form id="quick-node-form" class="quick-form">
                 <p class="builder-intro field-wide">Start with the box text and type. You can add answers, links, and visual details later.</p>
                 <label class="field field-wide">
@@ -496,6 +527,19 @@ export class BranchScriptApp {
     `;
   }
 
+  private shapePaletteMarkup(): string {
+    return shapePalettePresets
+      .map(
+        (preset) => `
+          <button class="shape-palette-item" type="button" draggable="true" data-shape-preset="${preset.shape}" aria-label="${t("Drag {name} shape", { name: t(preset.name) })}" aria-pressed="false">
+            <span class="shape-palette-preview ${preset.shape}" aria-hidden="true"></span>
+            <span><strong>${preset.name}</strong><small>${preset.shapeName}</small></span>
+          </button>
+        `,
+      )
+      .join("");
+  }
+
   private bindControls(): void {
     for (const button of this.root.querySelectorAll<HTMLButtonElement>("[data-mobile-view-button]")) {
       button.addEventListener("click", () => this.setMobileView(button.dataset.mobileViewButton as "source" | "canvas"));
@@ -538,6 +582,8 @@ export class BranchScriptApp {
     });
     this.requireElement("add-node-button").addEventListener("click", () => this.openQuickBuilder());
     this.requireElement("quick-builder-close").addEventListener("click", () => this.closeQuickBuilder());
+    this.requireElement("shape-placement-cancel").addEventListener("click", () => this.setPendingShape(null));
+    this.bindShapePalette();
     this.requireElement("quick-advanced-toggle").addEventListener("click", () => {
       const advanced = this.requireElement("quick-advanced-settings");
       this.setQuickAdvanced(advanced.hidden === true);
@@ -629,8 +675,17 @@ export class BranchScriptApp {
     this.store.update({ source });
     this.updateStatus("Compiling…", "working");
     if (this.compileTimer !== null) window.clearTimeout(this.compileTimer);
-    this.compileTimer = window.setTimeout(() => this.compile(false), 160);
+    this.compileTimer = window.setTimeout(() => {
+      this.compileTimer = null;
+      this.compile(false);
+    }, 160);
     this.scheduleSave();
+  }
+
+  private compileImmediately(fitView: boolean): void {
+    if (this.compileTimer !== null) window.clearTimeout(this.compileTimer);
+    this.compileTimer = null;
+    this.compile(fitView);
   }
 
   private compile(initial: boolean): void {
@@ -666,6 +721,103 @@ export class BranchScriptApp {
     this.scheduleSave();
   }
 
+  private bindShapePalette(): void {
+    const canvasElement = this.requireElement("graph-canvas");
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>("[data-shape-preset]")) {
+      button.addEventListener("dragstart", (event) => {
+        const shape = button.dataset.shapePreset as NodeShape;
+        if (!this.shapePreset(shape)) return;
+        this.draggedShape = shape;
+        this.setPendingShape(null);
+        button.dataset.dragging = "true";
+        event.dataTransfer?.setData("application/x-branchscript-shape", shape);
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+      });
+      button.addEventListener("dragend", () => {
+        this.draggedShape = null;
+        delete button.dataset.dragging;
+        canvasElement.classList.remove("shape-drop-target");
+      });
+      button.addEventListener("click", () => {
+        const shape = button.dataset.shapePreset as NodeShape;
+        this.setPendingShape(this.pendingShape === shape ? null : shape);
+        if (this.pendingShape && window.matchMedia("(max-width: 560px)").matches) this.closeQuickBuilder(false);
+      });
+    }
+
+    canvasElement.addEventListener("dragenter", (event) => {
+      if (!this.draggedShape) return;
+      event.preventDefault();
+      canvasElement.classList.add("shape-drop-target");
+    });
+    canvasElement.addEventListener("dragover", (event) => {
+      if (!this.draggedShape) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      canvasElement.classList.add("shape-drop-target");
+    });
+    canvasElement.addEventListener("dragleave", (event) => {
+      if (event.relatedTarget instanceof Element && canvasElement.contains(event.relatedTarget)) return;
+      canvasElement.classList.remove("shape-drop-target");
+    });
+    canvasElement.addEventListener("drop", (event) => {
+      const shape = this.draggedShape;
+      if (!shape) return;
+      event.preventDefault();
+      canvasElement.classList.remove("shape-drop-target");
+      this.draggedShape = null;
+      const position = this.canvas?.clientPointToGraph(event.clientX, event.clientY);
+      if (position) this.addShapeAt(shape, position);
+    });
+  }
+
+  private shapePreset(shape: NodeShape): ShapePalettePreset | undefined {
+    return shapePalettePresets.find((preset) => preset.shape === shape);
+  }
+
+  private setPendingShape(shape: NodeShape | null): void {
+    this.pendingShape = shape;
+    const preset = shape ? this.shapePreset(shape) : null;
+    const cue = this.requireElement("shape-placement-cue");
+    cue.hidden = !preset;
+    this.requireElement("graph-canvas").classList.toggle("shape-placement-active", Boolean(preset));
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>("[data-shape-preset]")) {
+      button.setAttribute("aria-pressed", String(button.dataset.shapePreset === shape));
+    }
+    if (preset) {
+      this.requireElement("shape-placement-label").textContent = t("Tap canvas to place {name}", {
+        name: t(preset.name),
+      });
+    }
+  }
+
+  private placePendingShape(position: Point): void {
+    if (!this.pendingShape) return;
+    const shape = this.pendingShape;
+    this.setPendingShape(null);
+    this.addShapeAt(shape, position);
+  }
+
+  private addShapeAt(shape: NodeShape, center: Point): void {
+    const preset = this.shapePreset(shape);
+    if (!preset) return;
+    const label = t(preset.label);
+    const id = this.uniqueNodeId(label);
+    const size = {
+      card: { width: 292, height: 116 },
+      pill: { width: 212, height: 76 },
+      diamond: { width: 230, height: 144 },
+      circle: { width: 126, height: 126 },
+    }[shape];
+    const position = {
+      x: Math.round(center.x - size.width / 2),
+      y: Math.round(center.y - size.height / 2),
+    };
+    this.store.update({ positions: { ...this.store.get().positions, [id]: position } });
+    this.appendScript([`${preset.kind} ${id} ${JSON.stringify(label)}`, `  @shape ${shape}`]);
+    this.updateStatus(t("Added {name}", { name: label }), "working");
+  }
+
   private openQuickBuilder(parentId: string | null = null): void {
     this.editingNodeId = null;
     this.setMobileView("canvas");
@@ -692,6 +844,7 @@ export class BranchScriptApp {
     const graphDocument = this.store.get().document;
     const node = graphDocument?.nodes.find((candidate) => candidate.id === nodeId);
     if (!graphDocument || !node) return;
+    this.setPendingShape(null);
     this.editingNodeId = node.id;
     this.setMobileView("canvas");
     this.closeCanvasContextMenu();
@@ -751,9 +904,10 @@ export class BranchScriptApp {
     }
   }
 
-  private closeQuickBuilder(): void {
+  private closeQuickBuilder(clearPlacement = true): void {
     this.requireElement("quick-builder").hidden = true;
     this.editingNodeId = null;
+    if (clearPlacement) this.setPendingShape(null);
   }
 
   private setQuickAdvanced(open: boolean): void {
@@ -1193,7 +1347,7 @@ export class BranchScriptApp {
     this.setSourceName("untitled.mtree");
     this.store.update({ source: blankProjectSource, positions: {}, direction: "TB", selectedNodeId: null });
     this.editor?.setValue(blankProjectSource, { scrollToTop: true });
-    this.compile(true);
+    this.compileImmediately(true);
     this.updateStatus(t("Blank project ready"), "ok");
   }
 
@@ -1210,9 +1364,11 @@ export class BranchScriptApp {
     const direction = view === "flow" || view === "neural" || view === "data" ? "LR" : "TB";
     this.currentCloudDiagram = null;
     this.setSourceName(preset.filename);
-    this.store.update({ source: preset.source, positions: {}, direction });
+    this.store.update({ source: preset.source, positions: {}, direction, selectedNodeId: null });
     this.editor?.setValue(preset.source, { scrollToTop: true });
     this.runPath = [];
+    this.renderInspector(undefined);
+    this.compileImmediately(true);
     this.updateStatus(t("Loaded {name}", { name: t(preset.title) }), "ok");
   }
 
@@ -1545,7 +1701,7 @@ export class BranchScriptApp {
     });
     this.applyTheme();
     this.editor?.setValue(diagram.source, { scrollToTop: true });
-    this.compile(true);
+    this.compileImmediately(true);
     this.renderCloudLibrary();
     this.closeAccountPanel();
     this.updateStatus(t("Opened {name}", { name: diagram.title }), "ok");
@@ -1692,7 +1848,7 @@ export class BranchScriptApp {
         this.setSourceName(file.name);
         this.editor?.setValue(text, { scrollToTop: true });
       }
-      this.compile(true);
+      this.compileImmediately(true);
     } catch (error) {
       this.updateStatus(error instanceof Error ? error.message : "Import failed", "error");
     } finally {

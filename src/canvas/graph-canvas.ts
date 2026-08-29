@@ -13,6 +13,7 @@ interface CanvasCallbacks {
   onSelect: (nodeIds: string[]) => void;
   onPositionsChange: (positions: Record<string, Point>) => void;
   onQuickAdd: () => void;
+  onCanvasTap: (position: Point) => void;
   onNodeEdit: (nodeId: string) => void;
   onContextMenu: (request: { clientX: number; clientY: number; nodeId: string | null }) => void;
 }
@@ -47,6 +48,9 @@ const nodeColors: Record<NodeKind, { fill: string; stroke: string; accent: strin
 };
 
 const dataKinds = new Set<NodeKind>(["array", "item", "stack", "queue", "list", "record", "pointer"]);
+const touchTapDistance = 10;
+const touchDoubleTapDelay = 320;
+const virtualNodeThreshold = 200;
 
 const customNodeColors = {
   green: { fill: "#202b27", stroke: "#4f806f", accent: "#91b9aa" },
@@ -93,7 +97,11 @@ export class GraphCanvas {
   private edgeVisibilityFrame: number | null = null;
   private zoomFrame: number | null = null;
   private pendingZoom: { scale: number; center: Point } | null = null;
-  private touchStart: { pointerId: number; x: number; y: number } | null = null;
+  private readonly activeTouches = new Map<number, Point>();
+  private touchStart: { pointerId: number; x: number; y: number; nodeId: string | null; moved: boolean } | null = null;
+  private lastTouchTap: { nodeId: string | null; timestamp: number } | null = null;
+  private touchFrame: number | null = null;
+  private pendingTouchTransform: { dx: number; dy: number; scale: number | null; center: Point | null } | null = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -152,11 +160,15 @@ export class GraphCanvas {
     );
 
     this.container.addEventListener("wheel", this.onCanvasWheel, { passive: false });
-    this.container.addEventListener("pointerdown", this.onCanvasPointerDown, { passive: true });
-    this.container.addEventListener("pointerup", this.onCanvasPointerUp, { passive: true });
-    this.container.addEventListener("pointercancel", this.onCanvasPointerCancel, { passive: true });
+    this.container.addEventListener("pointerdown", this.onCanvasPointerDown, { capture: true, passive: false });
+    this.container.addEventListener("pointermove", this.onCanvasPointerMove, { capture: true, passive: false });
+    this.container.addEventListener("pointerup", this.onCanvasPointerUp, { capture: true, passive: false });
+    this.container.addEventListener("pointercancel", this.onCanvasPointerCancel, { capture: true, passive: false });
     this.graph.on("scale", this.scheduleEdgeVisibility);
     this.graph.on("translate", this.scheduleEdgeVisibility);
+    this.graph.on("blank:click", ({ e }) => {
+      this.callbacks.onCanvasTap(this.clientPointToGraph(e.clientX, e.clientY));
+    });
     this.graph.on("blank:dblclick", () => this.callbacks.onQuickAdd());
     this.graph.on("node:dblclick", ({ e, node }) => {
       e.preventDefault();
@@ -196,23 +208,141 @@ export class GraphCanvas {
   }
 
   private readonly onCanvasPointerDown = (event: PointerEvent): void => {
-    if (event.pointerType !== "touch" || !event.isPrimary) return;
-    this.touchStart = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    if (event.pointerType !== "touch") return;
+    this.consumeTouchEvent(event);
+    try {
+      this.container.setPointerCapture(event.pointerId);
+    } catch {
+      // Synthetic pointer events do not create a native pointer capture session.
+    }
+
+    this.activeTouches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (this.activeTouches.size === 1) {
+      this.touchStart = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        nodeId: this.nodeIdFromTarget(event.target),
+        moved: false,
+      };
+    } else {
+      this.touchStart = null;
+      this.lastTouchTap = null;
+    }
+  };
+
+  private readonly onCanvasPointerMove = (event: PointerEvent): void => {
+    if (event.pointerType !== "touch") return;
+    const previous = this.activeTouches.get(event.pointerId);
+    if (!previous) return;
+    this.consumeTouchEvent(event);
+
+    const next = { x: event.clientX, y: event.clientY };
+    this.activeTouches.set(event.pointerId, next);
+    if (this.touchStart && event.pointerId === this.touchStart.pointerId) {
+      this.touchStart.moved ||= Math.hypot(next.x - this.touchStart.x, next.y - this.touchStart.y) > touchTapDistance;
+    }
+
+    if (this.activeTouches.size === 1) {
+      this.queueTouchTransform(next.x - previous.x, next.y - previous.y);
+      return;
+    }
+
+    this.touchStart = null;
+    const pair = [...this.activeTouches.entries()].slice(0, 2);
+    const movedIndex = pair.findIndex(([pointerId]) => pointerId === event.pointerId);
+    if (movedIndex < 0) return;
+    const currentA = pair[0]?.[1];
+    const currentB = pair[1]?.[1];
+    if (!currentA || !currentB) return;
+    const previousA = movedIndex === 0 ? previous : currentA;
+    const previousB = movedIndex === 1 ? previous : currentB;
+    const previousDistance = Math.hypot(previousB.x - previousA.x, previousB.y - previousA.y);
+    const currentDistance = Math.hypot(currentB.x - currentA.x, currentB.y - currentA.y);
+    if (previousDistance < 1 || currentDistance < 1) return;
+
+    const previousCenter = { x: (previousA.x + previousB.x) / 2, y: (previousA.y + previousB.y) / 2 };
+    const currentCenter = { x: (currentA.x + currentB.x) / 2, y: (currentA.y + currentB.y) / 2 };
+    const currentScale = this.pendingTouchTransform?.scale ?? this.graph.zoom();
+    const targetScale = Math.max(0.01, Math.min(16, currentScale * (currentDistance / previousDistance)));
+    this.queueTouchTransform(
+      currentCenter.x - previousCenter.x,
+      currentCenter.y - previousCenter.y,
+      targetScale,
+      currentCenter,
+    );
   };
 
   private readonly onCanvasPointerUp = (event: PointerEvent): void => {
+    if (event.pointerType !== "touch") return;
+    this.consumeTouchEvent(event);
     const start = this.touchStart;
+    this.activeTouches.delete(event.pointerId);
     this.touchStart = null;
     if (!start || event.pointerId !== start.pointerId) return;
-    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 12) return;
-    const target = event.target instanceof Element ? event.target.closest<HTMLElement>(".x6-node[data-cell-id]") : null;
-    const nodeId = target?.dataset.cellId;
-    if (nodeId) this.focusNode(nodeId, false);
-    else this.container.focus({ preventScroll: true });
+    if (start.moved || Math.hypot(event.clientX - start.x, event.clientY - start.y) > touchTapDistance) return;
+
+    const timestamp = performance.now();
+    const doubleTap =
+      this.lastTouchTap?.nodeId === start.nodeId && timestamp - this.lastTouchTap.timestamp <= touchDoubleTapDelay;
+    this.lastTouchTap = doubleTap ? null : { nodeId: start.nodeId, timestamp };
+
+    if (start.nodeId) {
+      this.focusNode(start.nodeId, false);
+      if (doubleTap) {
+        const node = this.graph.getCellById(start.nodeId);
+        if (node instanceof Node) {
+          this.callbacks.onNodeEdit(start.nodeId);
+          window.setTimeout(() => this.zoomToNode(node), 80);
+        }
+      }
+    } else {
+      this.container.focus({ preventScroll: true });
+      this.callbacks.onCanvasTap(this.clientPointToGraph(event.clientX, event.clientY));
+      if (doubleTap) this.callbacks.onQuickAdd();
+    }
   };
 
-  private readonly onCanvasPointerCancel = (): void => {
+  private readonly onCanvasPointerCancel = (event: PointerEvent): void => {
+    if (event.pointerType !== "touch") return;
+    this.consumeTouchEvent(event);
+    this.activeTouches.delete(event.pointerId);
     this.touchStart = null;
+    this.lastTouchTap = null;
+  };
+
+  private consumeTouchEvent(event: PointerEvent): void {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  private nodeIdFromTarget(target: EventTarget | null): string | null {
+    if (!(target instanceof Element)) return null;
+    return target.closest<HTMLElement>(".x6-node[data-cell-id]")?.dataset.cellId ?? null;
+  }
+
+  private queueTouchTransform(dx: number, dy: number, scale: number | null = null, center: Point | null = null): void {
+    const pending = this.pendingTouchTransform ?? { dx: 0, dy: 0, scale: null, center: null };
+    pending.dx += dx;
+    pending.dy += dy;
+    if (scale !== null && center) {
+      pending.scale = scale;
+      pending.center = center;
+    }
+    this.pendingTouchTransform = pending;
+    if (this.touchFrame === null) this.touchFrame = window.requestAnimationFrame(this.applyPendingTouchTransform);
+  }
+
+  private readonly applyPendingTouchTransform = (): void => {
+    this.touchFrame = null;
+    const pending = this.pendingTouchTransform;
+    this.pendingTouchTransform = null;
+    if (!pending) return;
+    if (pending.dx !== 0 || pending.dy !== 0) this.graph.translateBy(pending.dx, pending.dy);
+    if (pending.scale !== null && pending.center) {
+      const anchor = this.graph.clientToGraph(pending.center);
+      this.graph.zoom(pending.scale, { absolute: true, center: anchor });
+    }
   };
 
   render(
@@ -235,6 +365,8 @@ export class GraphCanvas {
 
     this.history.disable();
     this.graph.clearCells();
+    if (document.nodes.length > virtualNodeThreshold) this.graph.enableVirtualRender();
+    else this.graph.disableVirtualRender();
 
     for (const node of document.nodes) {
       const position = positions[node.id] ?? { x: 0, y: 0 };
@@ -933,6 +1065,11 @@ export class GraphCanvas {
     );
   }
 
+  clientPointToGraph(clientX: number, clientY: number): Point {
+    const point = this.graph.clientToGraph({ x: clientX, y: clientY });
+    return { x: point.x, y: point.y };
+  }
+
   private emitPositions(): void {
     this.callbacks.onPositionsChange(this.getPositions());
   }
@@ -963,8 +1100,13 @@ export class GraphCanvas {
 
   dispose(): void {
     this.container.removeEventListener("wheel", this.onCanvasWheel);
+    this.container.removeEventListener("pointerdown", this.onCanvasPointerDown, true);
+    this.container.removeEventListener("pointermove", this.onCanvasPointerMove, true);
+    this.container.removeEventListener("pointerup", this.onCanvasPointerUp, true);
+    this.container.removeEventListener("pointercancel", this.onCanvasPointerCancel, true);
     if (this.edgeVisibilityFrame !== null) window.cancelAnimationFrame(this.edgeVisibilityFrame);
     if (this.zoomFrame !== null) window.cancelAnimationFrame(this.zoomFrame);
+    if (this.touchFrame !== null) window.cancelAnimationFrame(this.touchFrame);
     this.graph.dispose();
   }
 
