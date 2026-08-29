@@ -8,15 +8,15 @@ export default defineConfig({
     },
     sourcemap: false,
     rollupOptions: {
-      input: [
-        resolve(import.meta.dirname, "index.html"),
-        resolve(import.meta.dirname, "app/index.html"),
-        resolve(import.meta.dirname, "blog/index.html"),
-        resolve(import.meta.dirname, "blog/visual-thinking.html"),
-        resolve(import.meta.dirname, "blog/brainstorming-maps.html"),
-        resolve(import.meta.dirname, "blog/algorithm-visualization.html"),
-        resolve(import.meta.dirname, "faq/index.html"),
-      ],
+      input: {
+        landing: resolve(import.meta.dirname, "index.html"),
+        app: resolve(import.meta.dirname, "app/index.html"),
+        blog: resolve(import.meta.dirname, "blog/index.html"),
+        visualThinking: resolve(import.meta.dirname, "blog/visual-thinking.html"),
+        brainstormingMaps: resolve(import.meta.dirname, "blog/brainstorming-maps.html"),
+        algorithmVisualization: resolve(import.meta.dirname, "blog/algorithm-visualization.html"),
+        faq: resolve(import.meta.dirname, "faq/index.html"),
+      },
     },
   },
   server: {
