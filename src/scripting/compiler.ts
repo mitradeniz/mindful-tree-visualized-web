@@ -359,9 +359,9 @@ export function compileMindTree(source: string): CompileResult {
           diagnostics.push(
             diagnostic("The global font scale must be unindented.", lineNumber, 1, offset, offset + rawLine.length),
           );
-        } else if (!Number.isInteger(parsedScale) || parsedScale < 80 || parsedScale > 150) {
+        } else if (!Number.isInteger(parsedScale) || parsedScale < 80 || parsedScale > 250) {
           diagnostics.push(
-            diagnostic("Global font scale must be an integer from 80 to 150.", lineNumber, contentStart + 1, offset + contentStart, offset + rawLine.length),
+            diagnostic("Global font scale must be an integer from 80 to 250.", lineNumber, contentStart + 1, offset + contentStart, offset + rawLine.length),
           );
         } else {
           fontScale = parsedScale;
@@ -456,9 +456,9 @@ export function compileMindTree(source: string): CompileResult {
         }
       } else if (name === "font-size") {
         const fontSize = Number(value);
-        if (!Number.isInteger(fontSize) || fontSize < 10 || fontSize > 48) {
+        if (!Number.isInteger(fontSize) || fontSize < 10 || fontSize > 96) {
           diagnostics.push(
-            diagnostic("Font size must be an integer from 10 to 48.", lineNumber, contentStart + 1, offset + contentStart, offset + rawLine.length),
+            diagnostic("Font size must be an integer from 10 to 96.", lineNumber, contentStart + 1, offset + contentStart, offset + rawLine.length),
           );
         } else {
           owner.node.fontSize = fontSize;

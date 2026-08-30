@@ -107,6 +107,56 @@ const shapePalettes: Partial<Record<DiagramView, readonly ShapePalettePreset[]>>
   ],
 };
 
+// Data diagrams need a palette that describes the structure currently being
+// worked on. Keeping the four visual slots stable makes drag/drop predictable,
+// while the semantics of those slots follow the selected structure.
+const dataShapePalettes: Partial<Record<NodeKind, readonly ShapePalettePreset[]>> = {
+  array: [
+    { shape: "card", kind: "array", name: "Array", shapeName: "Collection", label: "New array", keepNativeShape: true },
+    { shape: "pill", kind: "item", name: "Element", shapeName: "Array cell", label: "New element", keepNativeShape: true },
+    { shape: "diamond", kind: "pointer", name: "Index", shapeName: "Index pointer", label: "New index", keepNativeShape: true },
+    { shape: "circle", kind: "record", name: "Value", shapeName: "Stored value", label: "New value", keepNativeShape: true },
+  ],
+  stack: [
+    { shape: "card", kind: "stack", name: "Stack", shapeName: "Stack", label: "New stack", keepNativeShape: true },
+    { shape: "pill", kind: "item", name: "Push", shapeName: "Stack item", label: "New pushed item", keepNativeShape: true },
+    { shape: "diamond", kind: "item", name: "Pop", shapeName: "Removed item", label: "New popped item", keepNativeShape: true },
+    { shape: "circle", kind: "pointer", name: "Top", shapeName: "Top pointer", label: "New top pointer", keepNativeShape: true },
+  ],
+  queue: [
+    { shape: "card", kind: "queue", name: "Queue", shapeName: "Queue", label: "New queue", keepNativeShape: true },
+    { shape: "pill", kind: "item", name: "Enqueue", shapeName: "New entry", label: "New queued item", keepNativeShape: true },
+    { shape: "diamond", kind: "item", name: "Dequeue", shapeName: "Removed entry", label: "New dequeued item", keepNativeShape: true },
+    { shape: "circle", kind: "pointer", name: "Front", shapeName: "Front pointer", label: "New front pointer", keepNativeShape: true },
+  ],
+  list: [
+    { shape: "card", kind: "list", name: "List", shapeName: "Linked list", label: "New list", keepNativeShape: true },
+    { shape: "pill", kind: "item", name: "Node", shapeName: "List node", label: "New list node", keepNativeShape: true },
+    { shape: "diamond", kind: "record", name: "Payload", shapeName: "Node data", label: "New payload", keepNativeShape: true },
+    { shape: "circle", kind: "pointer", name: "Link", shapeName: "Next pointer", label: "New link", keepNativeShape: true },
+  ],
+  record: [
+    { shape: "card", kind: "record", name: "Record", shapeName: "Record", label: "New record", keepNativeShape: true },
+    { shape: "pill", kind: "item", name: "Field", shapeName: "Record field", label: "New field", keepNativeShape: true },
+    { shape: "diamond", kind: "record", name: "Nested record", shapeName: "Nested data", label: "New nested record", keepNativeShape: true },
+    { shape: "circle", kind: "pointer", name: "Reference", shapeName: "Field reference", label: "New reference", keepNativeShape: true },
+  ],
+  pointer: [
+    { shape: "card", kind: "item", name: "Target", shapeName: "Referenced value", label: "New target", keepNativeShape: true },
+    { shape: "pill", kind: "pointer", name: "Pointer", shapeName: "Reference", label: "New pointer", keepNativeShape: true },
+    { shape: "diamond", kind: "record", name: "Address", shapeName: "Address record", label: "New address", keepNativeShape: true },
+    { shape: "circle", kind: "pointer", name: "Link", shapeName: "Reference link", label: "New link", keepNativeShape: true },
+  ],
+  item: [
+    { shape: "card", kind: "item", name: "Item", shapeName: "Data item", label: "New item", keepNativeShape: true },
+    { shape: "pill", kind: "array", name: "Array", shapeName: "Collection", label: "New array", keepNativeShape: true },
+    { shape: "diamond", kind: "record", name: "Record", shapeName: "Structured value", label: "New record", keepNativeShape: true },
+    { shape: "circle", kind: "pointer", name: "Pointer", shapeName: "Reference", label: "New pointer", keepNativeShape: true },
+  ],
+};
+
+const dataPaletteKinds = new Set<NodeKind>(["array", "item", "stack", "queue", "list", "record", "pointer"]);
+
 const sourcePanelLayoutKey = "branchscript-source-panel-layout";
 const maxImportBytes = 1_048_576;
 const importPointSchema = z.object({
@@ -321,6 +371,11 @@ export class BranchScriptApp {
                     <option value="115">115%</option>
                     <option value="130">130%</option>
                     <option value="145">145%</option>
+                    <option value="160">160%</option>
+                    <option value="180">180%</option>
+                    <option value="200">200%</option>
+                    <option value="225">225%</option>
+                    <option value="250">250%</option>
                   </select>
                 </label>
                 <button class="button ghost compact" id="direction-button" type="button">Left → right</button>
@@ -419,6 +474,41 @@ export class BranchScriptApp {
                   <span>Supporting text</span>
                   <textarea id="quick-text" name="text" maxlength="420" rows="3" placeholder="Context, reminder, or explanation shown inside the box"></textarea>
                 </label>
+                <fieldset class="quick-typography field-wide">
+                  <legend>Text appearance</legend>
+                  <p>Applies only to this box.</p>
+                  <label class="field">
+                    <span>Font</span>
+                    <select id="quick-font" name="font">
+                      <option value="">Automatic</option>
+                      <option value="sans">Sans serif</option>
+                      <option value="serif">Serif</option>
+                      <option value="mono">Monospace</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Font size</span>
+                    <input id="quick-font-size" name="fontSize" type="number" min="10" max="96" step="1" placeholder="14" />
+                  </label>
+                  <label class="field">
+                    <span>Font weight</span>
+                    <select id="quick-font-weight" name="fontWeight">
+                      <option value="">Automatic</option>
+                      <option value="regular">Regular</option>
+                      <option value="medium">Medium</option>
+                      <option value="bold">Bold</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Text alignment</span>
+                    <select id="quick-align" name="align">
+                      <option value="">Automatic</option>
+                      <option value="left">Left</option>
+                      <option value="center">Center</option>
+                      <option value="right">Right</option>
+                    </select>
+                  </label>
+                </fieldset>
                 <button class="button ghost field-wide advanced-toggle" id="quick-advanced-toggle" type="button" aria-expanded="false" aria-controls="quick-advanced-settings quick-connect-section">Show more options</button>
                 <div id="quick-advanced-settings" class="quick-advanced field-wide" hidden>
                   <label class="field field-wide">
@@ -476,37 +566,6 @@ export class BranchScriptApp {
                       <option value="compact">Compact</option>
                       <option value="normal">Normal</option>
                       <option value="wide">Wide</option>
-                    </select>
-                  </label>
-                  <label class="field">
-                    <span>Font</span>
-                    <select id="quick-font" name="font">
-                      <option value="">Automatic</option>
-                      <option value="sans">Sans serif</option>
-                      <option value="serif">Serif</option>
-                      <option value="mono">Monospace</option>
-                    </select>
-                  </label>
-                  <label class="field">
-                    <span>Font size</span>
-                    <input id="quick-font-size" name="fontSize" type="number" min="10" max="48" step="1" placeholder="14" />
-                  </label>
-                  <label class="field">
-                    <span>Font weight</span>
-                    <select id="quick-font-weight" name="fontWeight">
-                      <option value="">Automatic</option>
-                      <option value="regular">Regular</option>
-                      <option value="medium">Medium</option>
-                      <option value="bold">Bold</option>
-                    </select>
-                  </label>
-                  <label class="field">
-                    <span>Text alignment</span>
-                    <select id="quick-align" name="align">
-                      <option value="">Automatic</option>
-                      <option value="left">Left</option>
-                      <option value="center">Center</option>
-                      <option value="right">Right</option>
                     </select>
                   </label>
                 </div>
@@ -686,12 +745,21 @@ export class BranchScriptApp {
   }
 
   private shapePaletteForCurrentView(): readonly ShapePalettePreset[] {
-    const view = this.store.get().document?.view;
-    return view ? shapePalettes[view] ?? defaultShapePalette : defaultShapePalette;
+    const document = this.store.get().document;
+    if (!document) return defaultShapePalette;
+    if (document.view === "data") {
+      const selected = document.nodes.find((node) => node.id === this.store.get().selectedNodeId);
+      const contextKind = selected && dataPaletteKinds.has(selected.kind)
+        ? selected.kind
+        : document.nodes.find((node) => dataPaletteKinds.has(node.kind))?.kind;
+      return (contextKind && dataShapePalettes[contextKind]) ?? shapePalettes.data ?? defaultShapePalette;
+    }
+    return shapePalettes[document.view] ?? defaultShapePalette;
   }
 
   private refreshShapePalette(view: DiagramView): void {
-    const presets = shapePalettes[view] ?? defaultShapePalette;
+    void view;
+    const presets = this.shapePaletteForCurrentView();
     const buttons = [...this.root.querySelectorAll<HTMLButtonElement>("[data-shape-preset]")];
     presets.forEach((preset, index) => {
       const button = buttons[index];
@@ -1737,6 +1805,7 @@ export class BranchScriptApp {
       .map((nodeId) => graphDocument?.nodes.find((candidate) => candidate.id === nodeId))
       .filter((node): node is GraphNode => node !== undefined);
     this.store.update({ selectedNodeId: selectedNodes[0]?.id ?? null });
+    if (graphDocument?.view === "data") this.refreshShapePalette(graphDocument.view);
     this.renderInspector(selectedNodes[0], selectedNodes.length);
     this.editor?.showNodeSelections(
       selectedNodes.map((node) => ({ from: node.source.from.offset, to: node.source.to.offset })),

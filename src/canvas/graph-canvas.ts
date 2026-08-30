@@ -1727,7 +1727,7 @@ export class GraphCanvas {
     // A node double-click is an inspection action: focus the chosen box at a
     // predictable, readable scale instead of fitting its whole neighborhood.
     // The latter can leave a dense algorithm or logic diagram far too small.
-    const targetScale = 1.2;
+    const targetScale = 1.5;
     this.graph.zoom(targetScale, {
       absolute: true,
       center: node.getBBox().getCenter(),

@@ -170,7 +170,7 @@ question intro "Tell me about yourself"`);
 
   it("rejects invalid global font scales", () => {
     const result = compileMindTree(`diagram readable "Readable"
-@font-scale 200
+@font-scale 300
 question intro "Tell me about yourself"
   @font-scale 120`);
 
@@ -181,7 +181,7 @@ question intro "Tell me about yourself"
   it("reports invalid typography settings", () => {
     const result = compileMindTree(`text reminder "Reminder"
   @font display
-  @font-size 72
+  @font-size 128
   @font-weight heavy
   @align justify`);
 

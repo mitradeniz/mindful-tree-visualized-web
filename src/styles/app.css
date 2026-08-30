@@ -1659,6 +1659,32 @@ a.button {
   display: none;
 }
 
+.quick-typography {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface-raised));
+}
+
+.quick-typography legend {
+  padding: 0 5px;
+  color: var(--accent-strong);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.quick-typography > p {
+  grid-column: 1 / -1;
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+}
+
 .field {
   display: grid;
   min-width: 0;
@@ -2474,6 +2500,11 @@ a.button {
   }
 
   .quick-advanced {
+    grid-column: 1;
+    grid-template-columns: 1fr;
+  }
+
+  .quick-typography {
     grid-column: 1;
     grid-template-columns: 1fr;
   }

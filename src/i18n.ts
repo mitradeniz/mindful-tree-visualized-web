@@ -190,6 +190,8 @@ const translations: Record<Exclude<Locale, "en">, Record<string, string>> = {
     Medium: "Orta",
     Bold: "Kalın",
     "Text alignment": "Metin hizası",
+    "Text appearance": "Metin görünümü",
+    "Applies only to this box.": "Yalnızca bu kutuya uygulanır.",
     Left: "Sol",
     Center: "Orta",
     Right: "Sağ",

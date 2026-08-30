@@ -46,7 +46,7 @@ describe("large canvas navigation", () => {
     expect(canvasSource).toContain("this.callbacks.onNodeEdit(node.id);");
     expect(canvasSource).toContain("this.isNodeTitleTarget(e.target)");
     expect(canvasSource).toContain("this.openInlineTitleEditor(node);");
-    expect(canvasSource).toContain("const targetScale = 1.2;");
+    expect(canvasSource).toContain("const targetScale = 1.5;");
     expect(canvasSource).toContain("absolute: true");
     expect(canvasSource).toContain("this.graph.centerCell(node);");
     expect(canvasSource).toContain("node.getBBox().getCenter()");
