@@ -4,6 +4,10 @@ BranchScript turns a small, readable script into explorable thought trees, visua
 
 The application is built with TypeScript and browser-native APIs. It does not use React or JSX.
 
+![BranchScript canvas showing a branching visual system](public/branchscript-social.png)
+
+**[Explore the illustrated product guide →](docs/visual-guide.md)**
+
 ## Features
 
 - Live `.mtree` editing with syntax highlighting and diagnostics
@@ -107,6 +111,17 @@ connect entry -> next "linked reference"
 ```
 
 Use `@items` for ordered cells in arrays, stacks, queues, and linked lists. Use `@fields` for key-value rows in records, and connect `pointer` nodes to make references explicit. The Data playground contains all of these structures as a ready-to-edit example.
+
+## Real-world example library
+
+Open **Examples** in the playground to load complete, editable diagrams rather than isolated shape demos. Each technical visual language includes four templates:
+
+- **Data:** structure overview, JavaScript event loop, LRU cache, and database B-tree index.
+- **Algorithm:** binary search, Dijkstra shortest path, merge sort, and token-bucket rate limiting.
+- **Logic:** response selection, scientific calculator evaluation, API access control, and checkout risk routing.
+- **Neural:** interview signal aggregation, CNN image classification, email spam classification, and service anomaly detection.
+
+Every example is ordinary `.mtree` source. It can be run in Live Run, edited visually or as text, and exported as the starting point for a new project.
 
 Boxes can also be styled directly:
 

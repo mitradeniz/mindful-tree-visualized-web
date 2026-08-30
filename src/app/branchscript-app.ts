@@ -22,7 +22,13 @@ import { GraphCanvas } from "../canvas/graph-canvas";
 import type { DiagramView, GraphDocument, GraphNode, NodeKind, NodeShape } from "../domain/graph-document";
 import { ScriptEditor } from "../editor/script-editor";
 import { getLocale, localeOptions, localizeElement, setLocale, t, type Locale } from "../i18n";
-import { blankProjectSource, playgroundPresets, presetForView } from "../playground/presets";
+import {
+  blankProjectSource,
+  playgroundPresets,
+  presetById,
+  presetsForView,
+  primaryPlaygroundPresets,
+} from "../playground/presets";
 import { compileMindTree } from "../scripting/compiler";
 import type { Diagnostic } from "../scripting/diagnostic";
 import { loadProject, saveProject, type SavedProject } from "../storage/project-storage";
@@ -157,6 +163,7 @@ export class BranchScriptApp {
       onQuickAdd: () => this.openQuickBuilder(),
       onCanvasTap: (position) => this.placePendingShape(position),
       onNodeEdit: (nodeId) => this.openNodeEditor(nodeId),
+      onNodeResize: (nodeId, size, position) => this.resizeNode(nodeId, size, position),
       onContextMenu: (request) => this.openCanvasContextMenu(request),
       onPositionsChange: (positions) => {
         this.store.update({ positions });
@@ -187,6 +194,7 @@ export class BranchScriptApp {
             <button class="button cloud-action" id="cloud-save-button" type="button">Save project</button>
             <button class="button ghost account-action" id="account-button" type="button">Sign in</button>
             <button class="button ghost" id="guide-button" type="button">Learn</button>
+            <button class="button ghost" id="template-library-button" type="button">Examples</button>
             <button class="button ghost" id="import-button" type="button">Import</button>
             <button class="button ghost" id="export-source-button" type="button">Export .mtree</button>
             <button class="button ghost" id="export-project-button" type="button">Export project</button>
@@ -212,7 +220,7 @@ export class BranchScriptApp {
               <span class="preset-visual blank" aria-hidden="true"><span class="blank-plus">＋</span></span>
               <span class="preset-copy"><strong>Blank project</strong><small>Start with an empty canvas.</small></span>
             </button>
-            ${playgroundPresets.map((preset) => this.presetCard(preset.id, preset.shortTitle, preset.description)).join("")}
+            ${primaryPlaygroundPresets.map((preset) => this.presetCard(preset.view, preset.shortTitle, preset.description)).join("")}
             <button class="preset-card preset-card-coming-soon" type="button" disabled aria-label="${t("System Design")}: ${t("Coming soon")}">
               <span class="preset-visual system-design" aria-hidden="true"><span class="motif-node system-a"></span><span class="motif-node system-b"></span><span class="motif-node system-c"></span><span class="motif-node system-d"></span></span>
               <span class="preset-copy"><strong>${t("System Design")}</strong><small>${t("Coming soon")} · ${t("Architecture maps for services, data, and trade-offs.")}</small></span>
@@ -264,6 +272,16 @@ export class BranchScriptApp {
               </div>
               <div class="toolbar-group">
                 <button class="button primary compact" id="add-node-button" type="button" aria-label="Open visual builder">＋ Add</button>
+                <label class="global-font-control" title="Font size">
+                  <span aria-hidden="true">Aa</span>
+                  <select id="global-font-scale" aria-label="Font size">
+                    <option value="85">85%</option>
+                    <option value="100" selected>100%</option>
+                    <option value="115">115%</option>
+                    <option value="130">130%</option>
+                    <option value="145">145%</option>
+                  </select>
+                </label>
                 <button class="button ghost compact" id="direction-button" type="button">Left → right</button>
                 <button class="button ghost compact" id="layout-button" type="button">Auto layout</button>
                 <button class="button ghost compact" id="fit-button" type="button">Fit view</button>
@@ -464,6 +482,16 @@ export class BranchScriptApp {
               </section>
               <p class="panel-hint">Tip: double-click an empty canvas area to open this panel.</p>
             </aside>
+            <aside id="template-library" class="side-panel template-library" aria-labelledby="template-library-title" hidden>
+              <header class="side-panel-header">
+                <div><span class="eyebrow">REAL-WORLD EXAMPLES</span><strong id="template-library-title">Example library</strong></div>
+                <button class="icon-button" id="template-library-close" type="button" aria-label="Close example library">×</button>
+              </header>
+              <div class="template-library-content">
+                <p>Choose a working structure to inspect, run, edit, and export as an <code>.mtree</code> file.</p>
+                ${this.templateLibraryMarkup()}
+              </div>
+            </aside>
             <aside id="learn-panel" class="side-panel learn-panel" aria-labelledby="learn-panel-title" hidden>
               <header class="side-panel-header">
                 <div><span class="eyebrow">BRANCHSCRIPT BASICS</span><strong id="learn-panel-title">Learn in five moves</strong></div>
@@ -574,6 +602,35 @@ export class BranchScriptApp {
     `;
   }
 
+  private templateLibraryMarkup(): string {
+    const groups: Array<{ view: DiagramView; title: string; description: string }> = [
+      { view: "data", title: "Data structures", description: "Memory, indexing, queues, caches, and references" },
+      { view: "algorithm", title: "Algorithms", description: "Search, sorting, graph traversal, and rate limiting" },
+      { view: "logic", title: "Logic systems", description: "Calculator, authorization, checkout, and answer routing" },
+      { view: "neural", title: "Neural networks", description: "Classification, anomaly detection, and signal aggregation" },
+    ];
+    return groups
+      .map(({ view, title, description }) => {
+        const presets = presetsForView(view);
+        return `
+          <section class="template-group" data-template-group="${view}">
+            <header><div><strong>${title}</strong><span>${description}</span></div><small>${presets.length} examples</small></header>
+            <div class="template-example-list">
+              ${presets.map((preset) => `
+                <button class="template-example-card" type="button" data-example-preset="${preset.id}" data-example-view="${preset.view}">
+                  <span class="template-example-kind">${preset.shortTitle}</span>
+                  <strong>${preset.title}</strong>
+                  <span>${preset.description}</span>
+                  <code>${preset.filename}</code>
+                </button>
+              `).join("")}
+            </div>
+          </section>
+        `;
+      })
+      .join("");
+  }
+
   private shapePaletteMarkup(): string {
     return shapePalettePresets
       .map(
@@ -592,7 +649,7 @@ export class BranchScriptApp {
       button.addEventListener("click", () => this.setMobileView(button.dataset.mobileViewButton as "source" | "canvas"));
     }
     for (const card of this.root.querySelectorAll<HTMLButtonElement>("[data-preset]")) {
-      card.addEventListener("click", () => void this.loadPreset(card.dataset.preset as DiagramView));
+      card.addEventListener("click", () => void this.loadPreset(card.dataset.preset ?? ""));
     }
     this.requireElement("blank-project-button").addEventListener("click", () => void this.startBlankProject());
     this.requireElement("confirmation-cancel").addEventListener("click", () => this.resolveConfirmation(false));
@@ -623,6 +680,11 @@ export class BranchScriptApp {
     this.requireElement("guide-button").addEventListener("click", () => this.openLearnPanel());
     this.requireElement("editor-guide-button").addEventListener("click", () => this.openLearnPanel());
     this.requireElement("learn-panel-close").addEventListener("click", () => this.closeLearnPanel());
+    this.requireElement("template-library-button").addEventListener("click", () => this.openTemplateLibrary());
+    this.requireElement("template-library-close").addEventListener("click", () => this.closeTemplateLibrary());
+    for (const example of this.root.querySelectorAll<HTMLButtonElement>("[data-example-preset]")) {
+      example.addEventListener("click", () => void this.loadPreset(example.dataset.examplePreset ?? ""));
+    }
     this.requireElement("guide-open-builder").addEventListener("click", () => {
       this.closeLearnPanel();
       this.openQuickBuilder();
@@ -649,6 +711,9 @@ export class BranchScriptApp {
     document.addEventListener("fullscreenchange", () => this.updateFullscreenControl());
     this.requireElement("layout-button").addEventListener("click", () => this.autoLayout());
     this.requireElement("direction-button").addEventListener("click", () => this.toggleDirection());
+    this.requireElement("global-font-scale").addEventListener("change", (event) => {
+      this.setGlobalFontScale(Number((event.currentTarget as HTMLSelectElement).value));
+    });
     this.requireElement("live-run-button").addEventListener("click", () => this.toggleRunner());
     this.requireElement("runner-close").addEventListener("click", () => this.closeRunner());
     this.requireElement("runner-back").addEventListener("click", () => this.runnerBack());
@@ -686,6 +751,7 @@ export class BranchScriptApp {
         this.closeCanvasContextMenu();
         this.closeQuickBuilder();
         this.closeLearnPanel();
+        this.closeTemplateLibrary();
         this.closeAccountPanel();
       }
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -798,6 +864,7 @@ export class BranchScriptApp {
     }
 
     this.store.update({ document: result.document });
+    (this.requireElement("global-font-scale") as HTMLSelectElement).value = String(result.document.fontScale);
     this.updateViewControls(result.document.view);
     this.refreshQuickOptions(result.document);
     const positions = this.canvas?.render(
@@ -989,6 +1056,7 @@ export class BranchScriptApp {
     this.setMobileView("canvas");
     this.closeCanvasContextMenu();
     this.closeLearnPanel();
+    this.closeTemplateLibrary();
     (this.requireElement("quick-node-form") as HTMLFormElement).reset();
     this.setQuickAdvanced(false);
     this.requireElement("quick-builder-title").textContent = t("Add without scripting");
@@ -1015,6 +1083,7 @@ export class BranchScriptApp {
     this.setMobileView("canvas");
     this.closeCanvasContextMenu();
     this.closeLearnPanel();
+    this.closeTemplateLibrary();
     this.refreshQuickOptions(graphDocument);
     this.requireElement("quick-builder-title").textContent = t("Edit box");
     this.requireElement("quick-node-submit").textContent = t("Save changes");
@@ -1093,11 +1162,24 @@ export class BranchScriptApp {
   private openLearnPanel(): void {
     this.setMobileView("canvas");
     this.closeQuickBuilder();
+    this.closeTemplateLibrary();
     this.requireElement("learn-panel").hidden = false;
   }
 
   private closeLearnPanel(): void {
     this.requireElement("learn-panel").hidden = true;
+  }
+
+  private openTemplateLibrary(): void {
+    this.setMobileView("canvas");
+    this.closeQuickBuilder();
+    this.closeLearnPanel();
+    this.requireElement("template-library").hidden = false;
+    this.root.querySelector<HTMLButtonElement>("[data-example-preset]")?.focus();
+  }
+
+  private closeTemplateLibrary(): void {
+    this.requireElement("template-library").hidden = true;
   }
 
   private openAccountPanel(): void {
@@ -1346,6 +1428,29 @@ export class BranchScriptApp {
     this.closeQuickBuilder();
   }
 
+  private resizeNode(nodeId: string, size: { width: number; height: number }, position: Point): void {
+    const node = this.store.get().document?.nodes.find((candidate) => candidate.id === nodeId);
+    if (!node) return;
+    const source = this.store.get().source;
+    const block = source.slice(node.source.from.offset, node.source.to.offset);
+    const lineBreak = source.includes("\r\n") ? "\r\n" : "\n";
+    const lines = block.split(/\r?\n/);
+    const indent = /^\s*/.exec(lines[0] ?? "")?.[0] ?? "";
+    const sizeLine = `${indent}  @size ${JSON.stringify(`${size.width}x${size.height}`)}`;
+    const existingIndex = lines.findIndex((line, index) => index > 0 && /^\s+@size\b/.test(line));
+    if (existingIndex >= 0) lines[existingIndex] = sizeLine;
+    else lines.splice(1, 0, sizeLine);
+
+    const updatedSource = `${source.slice(0, node.source.from.offset)}${lines.join(lineBreak)}${source.slice(node.source.to.offset)}`;
+    this.store.update({
+      selectedNodeId: nodeId,
+      positions: { ...this.store.get().positions, [nodeId]: position },
+    });
+    this.editor?.setValue(updatedSource);
+    this.updateStatus(t("Updated {name}", { name: node.label }), "working");
+    window.setTimeout(() => this.canvas?.focusNode(nodeId, false), 220);
+  }
+
   private addQuickConnection(event: Event): void {
     event.preventDefault();
     const source = (this.requireElement("quick-source") as HTMLSelectElement).value;
@@ -1505,11 +1610,34 @@ export class BranchScriptApp {
     this.autoLayout();
   }
 
+  private setGlobalFontScale(fontScale: number): void {
+    if (!Number.isInteger(fontScale) || fontScale < 80 || fontScale > 150) return;
+    const source = this.store.get().source;
+    const lineBreak = source.includes("\r\n") ? "\r\n" : "\n";
+    const lines = source.split(/\r?\n/);
+    const existingIndex = lines.findIndex((line) => /^@font-scale\s+/.test(line));
+    if (fontScale === 100) {
+      if (existingIndex >= 0) lines.splice(existingIndex, 1);
+    } else if (existingIndex >= 0) {
+      lines[existingIndex] = `@font-scale ${fontScale}`;
+    } else {
+      const viewIndex = lines.findIndex((line) => /^@view\s+/.test(line));
+      const declarationIndex = lines.findIndex((line) => /^(tree|diagram)\s+/.test(line));
+      lines.splice(viewIndex >= 0 ? viewIndex + 1 : Math.max(0, declarationIndex + 1), 0, `@font-scale ${fontScale}`);
+    }
+    this.editor?.setValue(lines.join(lineBreak));
+    this.updateStatus(t("Updated {name}", { name: t("Font size") }), "working");
+  }
+
   private updateViewControls(view: DiagramView): void {
     const blank = this.store.get().document?.nodes.length === 0;
     this.requireElement("blank-project-button").dataset.active = String(blank);
     for (const card of this.root.querySelectorAll<HTMLButtonElement>("[data-preset]")) {
       card.dataset.active = String(!blank && card.dataset.preset === view);
+    }
+    const source = this.store.get().source;
+    for (const example of this.root.querySelectorAll<HTMLButtonElement>("[data-example-preset]")) {
+      example.dataset.active = String(presetById(example.dataset.examplePreset ?? "")?.source === source);
     }
     const directionButton = this.requireElement("direction-button") as HTMLButtonElement;
     directionButton.disabled = view !== "flow";
@@ -1549,8 +1677,9 @@ export class BranchScriptApp {
     this.updateStatus(t("Blank project ready"), "ok");
   }
 
-  private async loadPreset(view: DiagramView): Promise<void> {
-    const preset = presetForView(view);
+  private async loadPreset(presetId: string): Promise<void> {
+    const preset = presetById(presetId);
+    if (!preset) return;
     if (this.store.get().source !== preset.source) {
       const accepted = await this.requestConfirmation({
         title: t("Replace current diagram?"),
@@ -1559,7 +1688,8 @@ export class BranchScriptApp {
       });
       if (!accepted) return;
     }
-    const direction = view === "flow" || view === "neural" || view === "data" ? "LR" : "TB";
+    const direction = preset.view === "flow" || preset.view === "neural" || preset.view === "data" ? "LR" : "TB";
+    this.closeTemplateLibrary();
     this.currentCloudDiagram = null;
     this.setSourceName(preset.filename);
     this.store.update({ source: preset.source, positions: {}, direction, selectedNodeId: null });

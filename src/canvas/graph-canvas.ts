@@ -7,7 +7,7 @@ import type { LayoutDirection, Point } from "../app/app-store";
 import type { DiagramView, GraphDocument, GraphEdge, GraphNode, NodeKind } from "../domain/graph-document";
 import { t } from "../i18n";
 import { dataFields, dataItems } from "./data-structure";
-import { calculateLayout, sizeForNode } from "./layout";
+import { calculateLayout, sizeForNode, type NodeSize } from "./layout";
 import { intersectsWithOverscan, maxCanvasScale, minCanvasScale, nextWheelZoomScale } from "./navigation";
 import { matchingNodeIds, nodeMatchesSearch } from "./search";
 
@@ -17,7 +17,23 @@ interface CanvasCallbacks {
   onQuickAdd: () => void;
   onCanvasTap: (position: Point) => void;
   onNodeEdit: (nodeId: string) => void;
+  onNodeResize: (nodeId: string, size: NodeSize, position: Point) => void;
   onContextMenu: (request: { clientX: number; clientY: number; nodeId: string | null }) => void;
+}
+
+type ResizeDirection = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
+
+interface ResizeSession {
+  pointerId: number;
+  nodeId: string;
+  direction: ResizeDirection;
+  clientX: number;
+  clientY: number;
+  position: Point;
+  size: NodeSize;
+  nextPosition: Point;
+  nextSize: NodeSize;
+  square: boolean;
 }
 
 interface NodePalette {
@@ -60,6 +76,12 @@ const dataKinds = new Set<NodeKind>(["array", "item", "stack", "queue", "list", 
 const touchTapDistance = 10;
 const touchDoubleTapDelay = 320;
 const virtualNodeThreshold = 200;
+const minBoxWidth = 120;
+const minBoxHeight = 60;
+const maxBoxWidth = 1_200;
+const maxBoxHeight = 900;
+const lightCanvasColor = "#edf4f1";
+const resizeDirections: ResizeDirection[] = ["n", "ne", "e", "se", "s", "sw", "w", "nw"];
 
 const customNodeColors = {
   green: { fill: "#202b27", stroke: "#4f806f", accent: "#91b9aa" },
@@ -129,9 +151,21 @@ function translucentColor(color: string, opacity: number): string {
   return `rgb(${red} ${green} ${blue} / ${opacity})`;
 }
 
+function compositeColor(foreground: string, background: string, opacity: number): string {
+  const foregroundHex = /^#([0-9a-f]{6})$/i.exec(foreground)?.[1];
+  const backgroundHex = /^#([0-9a-f]{6})$/i.exec(background)?.[1];
+  if (!foregroundHex || !backgroundHex) return foreground;
+  const foregroundValue = Number.parseInt(foregroundHex, 16);
+  const backgroundValue = Number.parseInt(backgroundHex, 16);
+  const channel = (shift: number) => Math.round(
+    ((foregroundValue >> shift) & 0xff) * opacity + ((backgroundValue >> shift) & 0xff) * (1 - opacity),
+  );
+  return `rgb(${channel(16)} ${channel(8)} ${channel(0)})`;
+}
+
 function nodeFill(colors: NodePalette): string {
   if (document.documentElement.dataset.theme !== "light") return colors.fill;
-  return translucentColor(colors.stroke, 0.16);
+  return compositeColor(colors.stroke, lightCanvasColor, 0.16);
 }
 
 function fitDataCellText(value: string, width: number, fontSize: number): string {
@@ -162,6 +196,8 @@ export class GraphCanvas {
   private readonly history: History;
   private readonly selection: Selection;
   private readonly keyboard: Keyboard;
+  private readonly minimap: MiniMap;
+  private readonly resizeFrame: HTMLDivElement;
   private document: GraphDocument | null = null;
   private edgeVisibilityFrame: number | null = null;
   private zoomFrame: number | null = null;
@@ -171,10 +207,15 @@ export class GraphCanvas {
   private lastTouchTap: { nodeId: string | null; timestamp: number } | null = null;
   private touchFrame: number | null = null;
   private pendingTouchTransform: { dx: number; dy: number; scale: number | null; center: Point | null } | null = null;
+  private resizeFrameId: number | null = null;
+  private selectedResizeNodeId: string | null = null;
+  private resizeSession: ResizeSession | null = null;
+  private minimapPointerId: number | null = null;
+  private minimapMouseDragging = false;
 
   constructor(
     private readonly container: HTMLElement,
-    minimapContainer: HTMLElement,
+    private readonly minimapContainer: HTMLElement,
     private readonly callbacks: CanvasCallbacks,
   ) {
     this.graph = new Graph({
@@ -219,22 +260,43 @@ export class GraphCanvas {
     this.graph.use(this.history);
     this.graph.use(this.selection);
     this.graph.use(this.keyboard);
-    this.graph.use(
-      new MiniMap({
-        container: minimapContainer,
-        width: 172,
-        height: 108,
-        padding: 12,
-      }),
-    );
+    this.minimap = new MiniMap({
+      container: this.minimapContainer,
+      width: 172,
+      height: 108,
+      padding: 12,
+      scalable: false,
+    });
+    this.graph.use(this.minimap);
+    this.minimapContainer.title = "Click or drag to move around the canvas";
+    this.minimapContainer.addEventListener("pointerdown", this.onMinimapPointerDown, { capture: true, passive: false });
+    this.minimapContainer.addEventListener("pointermove", this.onMinimapPointerMove, { capture: true, passive: false });
+    this.minimapContainer.addEventListener("pointerup", this.onMinimapPointerUp, { capture: true, passive: false });
+    this.minimapContainer.addEventListener("pointercancel", this.onMinimapPointerUp, { capture: true, passive: false });
+    this.minimapContainer.addEventListener("mousedown", this.onMinimapMouseDown, { capture: true, passive: false });
+
+    this.resizeFrame = window.document.createElement("div");
+    this.resizeFrame.className = "node-resize-frame";
+    this.resizeFrame.hidden = true;
+    for (const direction of resizeDirections) {
+      const handle = window.document.createElement("button");
+      handle.type = "button";
+      handle.className = `node-resize-handle resize-${direction}`;
+      handle.dataset.resizeHandle = direction;
+      handle.setAttribute("aria-label", `Resize box ${direction}`);
+      handle.addEventListener("pointerdown", this.onResizeHandlePointerDown);
+      this.resizeFrame.append(handle);
+    }
+    this.container.append(this.resizeFrame);
 
     this.container.addEventListener("wheel", this.onCanvasWheel, { passive: false });
     this.container.addEventListener("pointerdown", this.onCanvasPointerDown, { capture: true, passive: false });
     this.container.addEventListener("pointermove", this.onCanvasPointerMove, { capture: true, passive: false });
     this.container.addEventListener("pointerup", this.onCanvasPointerUp, { capture: true, passive: false });
     this.container.addEventListener("pointercancel", this.onCanvasPointerCancel, { capture: true, passive: false });
-    this.graph.on("scale", this.scheduleEdgeVisibility);
-    this.graph.on("translate", this.scheduleEdgeVisibility);
+    window.addEventListener("resize", this.scheduleResizeFrame);
+    this.graph.on("scale", this.scheduleViewportOverlays);
+    this.graph.on("translate", this.scheduleViewportOverlays);
     this.graph.on("blank:click", ({ e }) => {
       this.callbacks.onCanvasTap(this.clientPointToGraph(e.clientX, e.clientY));
     });
@@ -255,16 +317,21 @@ export class GraphCanvas {
     });
     this.graph.on("node:moved", () => {
       this.emitPositions();
-      this.scheduleEdgeVisibility();
+      this.scheduleViewportOverlays();
     });
     this.selection.on("selection:changed", () => {
       const nodeIds = this.selection
         .getSelectedCells()
         .filter((cell) => cell.isNode())
         .map((cell) => cell.id);
+      this.selectedResizeNodeId = nodeIds.length === 1 ? nodeIds[0] ?? null : null;
+      this.scheduleResizeFrame();
       this.callbacks.onSelect(nodeIds);
     });
-    this.history.on("change", () => this.emitPositions());
+    this.history.on("change", () => {
+      this.emitPositions();
+      this.scheduleResizeFrame();
+    });
 
     this.keyboard.bindKey(["meta+z", "ctrl+z"], () => {
       this.history.undo();
@@ -276,8 +343,87 @@ export class GraphCanvas {
     });
   }
 
+  private readonly onMinimapPointerDown = (event: PointerEvent): void => {
+    if (event.button !== 0 && event.pointerType !== "touch") return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.minimapPointerId = event.pointerId;
+    try {
+      this.minimapContainer.setPointerCapture(event.pointerId);
+    } catch {
+      // Synthetic pointer events do not create a native pointer capture session.
+    }
+    this.centerViewportAtMinimapPoint(event.clientX, event.clientY);
+  };
+
+  private readonly onMinimapPointerMove = (event: PointerEvent): void => {
+    if (event.pointerId !== this.minimapPointerId) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.centerViewportAtMinimapPoint(event.clientX, event.clientY);
+  };
+
+  private readonly onMinimapPointerUp = (event: PointerEvent): void => {
+    if (event.pointerId !== this.minimapPointerId) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.minimapPointerId = null;
+  };
+
+  private readonly onMinimapMouseDown = (event: MouseEvent): void => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    // A mouse pointer also emits a compatibility mousedown. The pointer path
+    // already navigated, but this event must still be consumed so the MiniMap
+    // plugin cannot apply its older ratio-based scroll calculation afterwards.
+    if (this.minimapPointerId !== null) return;
+    this.minimapMouseDragging = true;
+    this.centerViewportAtMinimapPoint(event.clientX, event.clientY);
+    window.addEventListener("mousemove", this.onMinimapMouseMove, { capture: true, passive: false });
+    window.addEventListener("mouseup", this.onMinimapMouseUp, { capture: true, passive: false });
+  };
+
+  private readonly onMinimapMouseMove = (event: MouseEvent): void => {
+    if (!this.minimapMouseDragging) return;
+    event.preventDefault();
+    this.centerViewportAtMinimapPoint(event.clientX, event.clientY);
+  };
+
+  private readonly onMinimapMouseUp = (event: MouseEvent): void => {
+    if (!this.minimapMouseDragging) return;
+    event.preventDefault();
+    this.minimapMouseDragging = false;
+    window.removeEventListener("mousemove", this.onMinimapMouseMove, true);
+    window.removeEventListener("mouseup", this.onMinimapMouseUp, true);
+  };
+
+  private centerViewportAtMinimapPoint(clientX: number, clientY: number): void {
+    // MiniMap shares the source graph model, but its paper has an additional
+    // fit transform. Invert that rendered matrix explicitly so zooming the main
+    // canvas cannot make minimap navigation drift away from the pointer.
+    const minimapGraph = (this.minimap as unknown as { targetGraph?: Graph }).targetGraph;
+    if (!minimapGraph) return;
+    const bounds = minimapGraph.container.getBoundingClientRect();
+    const matrix = minimapGraph.matrix();
+    const determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+    if (!Number.isFinite(determinant) || Math.abs(determinant) < Number.EPSILON) return;
+
+    const translatedX = clientX - bounds.left - matrix.e;
+    const translatedY = clientY - bounds.top - matrix.f;
+    const localX = (matrix.d * translatedX - matrix.c * translatedY) / determinant;
+    const localY = (-matrix.b * translatedX + matrix.a * translatedY) / determinant;
+    if (!Number.isFinite(localX) || !Number.isFinite(localY)) return;
+
+    const content = this.graph.getContentArea();
+    const targetX = content.width > 0 ? Math.max(content.x, Math.min(content.right, localX)) : localX;
+    const targetY = content.height > 0 ? Math.max(content.y, Math.min(content.bottom, localY)) : localY;
+    this.graph.centerPoint(targetX, targetY);
+  }
+
   private readonly onCanvasPointerDown = (event: PointerEvent): void => {
     if (event.pointerType !== "touch") return;
+    if (event.target instanceof Element && event.target.closest("[data-resize-handle]")) return;
     this.consumeTouchEvent(event);
     try {
       this.container.setPointerCapture(event.pointerId);
@@ -390,6 +536,157 @@ export class GraphCanvas {
     return target.closest<HTMLElement>(".x6-node[data-cell-id]")?.dataset.cellId ?? null;
   }
 
+  private readonly onResizeHandlePointerDown = (event: PointerEvent): void => {
+    if (event.button !== 0 && event.pointerType !== "touch") return;
+    const handle = event.currentTarget as HTMLButtonElement;
+    const direction = handle.dataset.resizeHandle as ResizeDirection | undefined;
+    const nodeId = this.selectedResizeNodeId;
+    const cell = nodeId ? this.graph.getCellById(nodeId) : null;
+    const sourceNode = this.document?.nodes.find((node) => node.id === nodeId);
+    if (!direction || !nodeId || !(cell instanceof Node) || !sourceNode) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const size = cell.size();
+    const position = cell.position();
+    this.resizeSession = {
+      pointerId: event.pointerId,
+      nodeId,
+      direction,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      position,
+      size,
+      nextPosition: position,
+      nextSize: size,
+      square: sourceNode.kind === "neuron" || sourceNode.shape === "circle",
+    };
+    this.resizeFrame.dataset.resizing = "true";
+    handle.setPointerCapture?.(event.pointerId);
+    window.addEventListener("pointermove", this.onResizePointerMove, { passive: false });
+    window.addEventListener("pointerup", this.onResizePointerUp, { passive: false });
+    window.addEventListener("pointercancel", this.onResizePointerCancel, { passive: false });
+  };
+
+  private readonly onResizePointerMove = (event: PointerEvent): void => {
+    const session = this.resizeSession;
+    if (!session || event.pointerId !== session.pointerId) return;
+    event.preventDefault();
+    const scale = Math.max(this.graph.zoom(), minCanvasScale);
+    const geometry = this.resizedGeometry(
+      session,
+      (event.clientX - session.clientX) / scale,
+      (event.clientY - session.clientY) / scale,
+    );
+    session.nextPosition = geometry.position;
+    session.nextSize = geometry.size;
+    this.positionResizeFrame(geometry.position, geometry.size);
+  };
+
+  private readonly onResizePointerUp = (event: PointerEvent): void => {
+    const session = this.resizeSession;
+    if (!session || event.pointerId !== session.pointerId) return;
+    event.preventDefault();
+    this.endResizeSession();
+    const fontScale = (this.document?.fontScale ?? 100) / 100;
+    this.callbacks.onNodeResize(
+      session.nodeId,
+      {
+        width: Math.round(session.nextSize.width / fontScale),
+        height: Math.round(session.nextSize.height / fontScale),
+      },
+      session.nextPosition,
+    );
+  };
+
+  private readonly onResizePointerCancel = (event: PointerEvent): void => {
+    if (!this.resizeSession || event.pointerId !== this.resizeSession.pointerId) return;
+    this.endResizeSession();
+    this.scheduleResizeFrame();
+  };
+
+  private endResizeSession(): void {
+    this.resizeSession = null;
+    delete this.resizeFrame.dataset.resizing;
+    window.removeEventListener("pointermove", this.onResizePointerMove);
+    window.removeEventListener("pointerup", this.onResizePointerUp);
+    window.removeEventListener("pointercancel", this.onResizePointerCancel);
+  }
+
+  private resizedGeometry(session: ResizeSession, dx: number, dy: number): { position: Point; size: NodeSize } {
+    const west = session.direction.includes("w");
+    const east = session.direction.includes("e");
+    const north = session.direction.includes("n");
+    const south = session.direction.includes("s");
+    let left = session.position.x + (west ? dx : 0);
+    let right = session.position.x + session.size.width + (east ? dx : 0);
+    let top = session.position.y + (north ? dy : 0);
+    let bottom = session.position.y + session.size.height + (south ? dy : 0);
+
+    let width = Math.min(maxBoxWidth, Math.max(minBoxWidth, right - left));
+    let height = Math.min(maxBoxHeight, Math.max(minBoxHeight, bottom - top));
+
+    if (session.square) {
+      const diameter = Math.min(
+        Math.min(maxBoxWidth, maxBoxHeight),
+        Math.max(Math.max(minBoxWidth, minBoxHeight), east || west ? (north || south ? Math.max(width, height) : width) : height),
+      );
+      width = diameter;
+      height = diameter;
+      if (!west && !east) {
+        left = session.position.x + (session.size.width - diameter) / 2;
+        right = left + diameter;
+      }
+      if (!north && !south) {
+        top = session.position.y + (session.size.height - diameter) / 2;
+        bottom = top + diameter;
+      }
+    }
+
+    if (west) left = right - width;
+    else right = left + width;
+    if (north) top = bottom - height;
+    else bottom = top + height;
+
+    return {
+      position: { x: Math.round(left), y: Math.round(top) },
+      size: { width: Math.round(right - left), height: Math.round(bottom - top) },
+    };
+  }
+
+  private readonly scheduleResizeFrame = (): void => {
+    if (this.resizeFrameId !== null || this.resizeSession) return;
+    this.resizeFrameId = window.requestAnimationFrame(() => {
+      this.resizeFrameId = null;
+      this.updateResizeFrame();
+    });
+  };
+
+  private updateResizeFrame(): void {
+    const nodeId = this.selectedResizeNodeId;
+    const cell = nodeId ? this.graph.getCellById(nodeId) : null;
+    if (!(cell instanceof Node)) {
+      this.resizeFrame.hidden = true;
+      return;
+    }
+    this.resizeFrame.hidden = false;
+    this.positionResizeFrame(cell.position(), cell.size());
+  }
+
+  private positionResizeFrame(position: Point, size: NodeSize): void {
+    const bounds = this.graph.localToClient({ x: position.x, y: position.y, width: size.width, height: size.height });
+    const containerBounds = this.container.getBoundingClientRect();
+    this.resizeFrame.style.left = `${bounds.x - containerBounds.left}px`;
+    this.resizeFrame.style.top = `${bounds.y - containerBounds.top}px`;
+    this.resizeFrame.style.width = `${bounds.width}px`;
+    this.resizeFrame.style.height = `${bounds.height}px`;
+  }
+
+  private readonly scheduleViewportOverlays = (): void => {
+    this.scheduleEdgeVisibility();
+    this.scheduleResizeFrame();
+  };
+
   private queueTouchTransform(dx: number, dy: number, scale: number | null = null, center: Point | null = null): void {
     const pending = this.pendingTouchTransform ?? { dx: 0, dy: 0, scale: null, center: null };
     pending.dx += dx;
@@ -420,6 +717,9 @@ export class GraphCanvas {
     savedPositions: Record<string, Point>,
     forceLayout = false,
   ): Record<string, Point> {
+    if (this.resizeSession) this.endResizeSession();
+    this.selectedResizeNodeId = null;
+    this.resizeFrame.hidden = true;
     this.document = document;
     this.container.dataset.nodeCount = String(document.nodes.length);
     const automaticPositions = calculateLayout(document, direction);
@@ -493,7 +793,7 @@ export class GraphCanvas {
       });
     }
 
-    this.scheduleEdgeVisibility();
+    this.scheduleViewportOverlays();
 
     this.history.clean();
     this.history.enable();
@@ -511,12 +811,43 @@ export class GraphCanvas {
   }
 
   private nodeMetadata(node: GraphNode, position: Point): Node.Metadata {
-    if (node.kind === "text") return this.textMetadata(node, position);
-    if (dataKinds.has(node.kind) && !node.shape) return this.dataMetadata(node, position);
-    const shape = node.shape ?? (node.kind === "decision" || node.kind === "condition" ? "diamond" : node.kind === "neuron" ? "circle" : node.kind === "input" || node.kind === "output" || node.kind === "start" || node.kind === "return" ? "pill" : "card");
-    if (shape === "diamond") return this.decisionMetadata(node, position);
-    if (shape === "circle") return this.neuronMetadata(node, position);
+    let metadata: Node.Metadata;
+    if (node.kind === "text") metadata = this.textMetadata(node, position);
+    else if (dataKinds.has(node.kind) && !node.shape) metadata = this.dataMetadata(node, position);
+    else {
+      const shape = node.shape ?? (node.kind === "decision" || node.kind === "condition" ? "diamond" : node.kind === "neuron" ? "circle" : node.kind === "input" || node.kind === "output" || node.kind === "start" || node.kind === "return" ? "pill" : "card");
+      if (shape === "diamond") metadata = this.decisionMetadata(node, position);
+      else if (shape === "circle") metadata = this.neuronMetadata(node, position);
+      else metadata = this.cardMetadata(node, position, shape);
+    }
+    return this.scaleNodeMetadata(metadata);
+  }
 
+  private scaleNodeMetadata(metadata: Node.Metadata): Node.Metadata {
+    const scale = (this.document?.fontScale ?? 100) / 100;
+    if (scale === 1) return metadata;
+    if (typeof metadata.width === "number") metadata.width = Math.round(metadata.width * scale);
+    if (typeof metadata.height === "number") metadata.height = Math.round(metadata.height * scale);
+    const attrs = metadata.attrs as Record<string, Record<string, unknown>> | undefined;
+    for (const attributes of Object.values(attrs ?? {})) {
+      if (!attributes || typeof attributes !== "object") continue;
+      for (const property of ["x", "y", "width", "height", "cx", "cy", "r", "rx", "ry", "fontSize", "letterSpacing"]) {
+        const value = attributes[property];
+        if (typeof value === "number") attributes[property] = value * scale;
+      }
+      if (typeof attributes.points === "string") {
+        attributes.points = attributes.points.replace(/-?\d+(?:\.\d+)?/g, (value) => String(Number(value) * scale));
+      }
+      const textWrap = attributes.textWrap as Record<string, unknown> | undefined;
+      if (textWrap) {
+        if (typeof textWrap.width === "number") textWrap.width *= scale;
+        if (typeof textWrap.height === "number") textWrap.height *= scale;
+      }
+    }
+    return metadata;
+  }
+
+  private cardMetadata(node: GraphNode, position: Point, shape: "card" | "pill"): Node.Metadata {
     const colors = paletteForNode(node);
     const size = sizeForNode(node);
     const labelPosition = textPositionForNode(node, size.width, 20);
@@ -706,7 +1037,7 @@ export class GraphCanvas {
         height: size.height,
         rx: 8,
         ry: 8,
-        fill: light ? translucentColor(colors.stroke, 0.045) : translucentColor(colors.stroke, 0.06),
+        fill: light ? compositeColor(colors.stroke, lightCanvasColor, 0.045) : translucentColor(colors.stroke, 0.06),
         stroke: translucentColor(colors.stroke, 0.22),
         strokeWidth: 1,
         strokeDasharray: "4 5",
@@ -1205,7 +1536,8 @@ export class GraphCanvas {
       if (!(cell instanceof Node)) continue;
       const matches = !searching || nodeMatchesSearch(node, query);
       const active = node.id === activeId;
-      cell.attr("body/opacity", matches ? 1 : 0.24);
+      cell.attr("body/opacity", 1);
+      cell.attr("body/strokeOpacity", matches ? 1 : 0.28);
       cell.attr("accent/opacity", matches ? 1 : 0.24);
       cell.attr("kind/opacity", matches ? 1 : 0.3);
       cell.attr("label/opacity", matches ? 1 : 0.3);
@@ -1342,7 +1674,18 @@ export class GraphCanvas {
     this.container.removeEventListener("pointermove", this.onCanvasPointerMove, true);
     this.container.removeEventListener("pointerup", this.onCanvasPointerUp, true);
     this.container.removeEventListener("pointercancel", this.onCanvasPointerCancel, true);
+    this.minimapContainer.removeEventListener("pointerdown", this.onMinimapPointerDown, true);
+    this.minimapContainer.removeEventListener("pointermove", this.onMinimapPointerMove, true);
+    this.minimapContainer.removeEventListener("pointerup", this.onMinimapPointerUp, true);
+    this.minimapContainer.removeEventListener("pointercancel", this.onMinimapPointerUp, true);
+    this.minimapContainer.removeEventListener("mousedown", this.onMinimapMouseDown, true);
+    this.minimapMouseDragging = false;
+    window.removeEventListener("mousemove", this.onMinimapMouseMove, true);
+    window.removeEventListener("mouseup", this.onMinimapMouseUp, true);
+    window.removeEventListener("resize", this.scheduleResizeFrame);
+    this.endResizeSession();
     if (this.edgeVisibilityFrame !== null) window.cancelAnimationFrame(this.edgeVisibilityFrame);
+    if (this.resizeFrameId !== null) window.cancelAnimationFrame(this.resizeFrameId);
     if (this.zoomFrame !== null) window.cancelAnimationFrame(this.zoomFrame);
     if (this.touchFrame !== null) window.cancelAnimationFrame(this.touchFrame);
     this.graph.dispose();

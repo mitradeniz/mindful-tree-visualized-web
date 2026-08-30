@@ -13,7 +13,7 @@ function sizedWidth(node: GraphNode, base: number, minimum = 160, maximum = 560)
   return Math.min(maximum, Math.max(minimum, Math.round(base * scale)));
 }
 
-export function sizeForNode(node: GraphNode): NodeSize {
+function automaticSizeForNode(node: GraphNode): NodeSize {
   const rich = Boolean(node.text || node.answer || node.feature);
   if (node.kind === "text") {
     const fontSize = node.fontSize ?? 18;
@@ -60,6 +60,22 @@ export function sizeForNode(node: GraphNode): NodeSize {
   };
 }
 
+export function sizeForNode(node: GraphNode, fontScale = 100): NodeSize {
+  const automatic = automaticSizeForNode(node);
+  let size = automatic;
+  if (node.boxWidth && node.boxHeight && (node.kind === "neuron" || node.shape === "circle")) {
+    const diameter = Math.max(node.boxWidth, node.boxHeight);
+    size = { width: diameter, height: diameter };
+  } else if (node.boxWidth && node.boxHeight) {
+    size = { width: node.boxWidth, height: node.boxHeight };
+  }
+  const scale = fontScale / 100;
+  return {
+    width: Math.round(size.width * scale),
+    height: Math.round(size.height * scale),
+  };
+}
+
 export function calculateLayout(
   document: GraphDocument,
   direction: LayoutDirection,
@@ -87,7 +103,7 @@ export function calculateLayout(
     .setDefaultEdgeLabel(() => ({}));
 
   for (const node of document.nodes) {
-    const size = sizeForNode(node);
+    const size = sizeForNode(node, document.fontScale);
     dagreGraph.setNode(node.id, {
       width: size.width,
       height: size.height,
@@ -101,7 +117,7 @@ export function calculateLayout(
 
   return Object.fromEntries(
     document.nodes.map((node) => {
-      const size = sizeForNode(node);
+      const size = sizeForNode(node, document.fontScale);
       const position = dagreGraph.node(node.id) as { x: number; y: number };
       return [
         node.id,

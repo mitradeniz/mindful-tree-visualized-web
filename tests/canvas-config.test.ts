@@ -19,6 +19,17 @@ describe("large canvas navigation", () => {
     expect(canvasSource).toContain("center: this.graph.clientToGraph");
   });
 
+  it("centers the canvas from an exact minimap point while clicking or dragging", () => {
+    expect(canvasSource).toContain("scalable: false");
+    expect(canvasSource).toContain("onMinimapPointerDown");
+    expect(canvasSource).toContain("onMinimapPointerMove");
+    expect(canvasSource).toContain("onMinimapMouseDown");
+    expect(canvasSource).toContain("this.minimapContainer.setPointerCapture(event.pointerId)");
+    expect(canvasSource).toContain("const matrix = minimapGraph.matrix()");
+    expect(canvasSource).toContain("const content = this.graph.getContentArea()");
+    expect(canvasSource).toContain("this.graph.centerPoint(targetX, targetY)");
+  });
+
   it("supports mobile pan, pinch zoom, and touch selection", () => {
     expect(canvasSource).toContain("private readonly activeTouches");
     expect(canvasSource).toContain("onCanvasPointerMove");
@@ -41,6 +52,21 @@ describe("large canvas navigation", () => {
     expect(canvasSource).toContain("this.graph.zoomToRect(bounds");
   });
 
+  it("resizes selected nodes from edge and corner handles", () => {
+    expect(canvasSource).toContain('const resizeDirections: ResizeDirection[] = ["n", "ne", "e", "se", "s", "sw", "w", "nw"]');
+    expect(canvasSource).toContain("onResizeHandlePointerDown");
+    expect(canvasSource).toContain("this.callbacks.onNodeResize(");
+    expect(canvasSource).toContain("width: Math.round(session.nextSize.width / fontScale)");
+    expect(canvasSource).toContain('sourceNode.kind === "neuron" || sourceNode.shape === "circle"');
+  });
+
+  it("applies the diagram-wide font scale to every node shape", () => {
+    expect(canvasSource).toContain("private scaleNodeMetadata(metadata: Node.Metadata)");
+    expect(canvasSource).toContain("(this.document?.fontScale ?? 100) / 100");
+    expect(canvasSource).toContain('["x", "y", "width", "height", "cx", "cy", "r", "rx", "ry", "fontSize", "letterSpacing"]');
+    expect(canvasSource).toContain("textWrap.width *= scale");
+  });
+
   it("does not render dangling edges and keeps nearby connections stable", () => {
     expect(canvasSource).toContain("if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) continue;");
     expect(canvasSource).toContain("const shouldCull = this.document.nodes.length > virtualNodeThreshold");
@@ -58,9 +84,11 @@ describe("large canvas navigation", () => {
     expect(canvasSource).toContain("this.graph.disableVirtualRender()");
   });
 
-  it("refreshes translucent node palettes when the theme changes", () => {
+  it("refreshes light node palettes without exposing edges below them", () => {
     expect(canvasSource).toContain("refreshTheme(): void");
     expect(canvasSource).toContain("cell.setAttrs(attrs)");
-    expect(canvasSource).toContain("translucentColor(colors.stroke, 0.16)");
+    expect(canvasSource).toContain("compositeColor(colors.stroke, lightCanvasColor, 0.16)");
+    expect(canvasSource).toContain('cell.attr("body/opacity", 1)');
+    expect(canvasSource).toContain('cell.attr("body/strokeOpacity", matches ? 1 : 0.28)');
   });
 });

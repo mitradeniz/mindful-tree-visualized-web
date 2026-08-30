@@ -1,6 +1,6 @@
 import source from "../examples/software-interview.mtree?raw";
 import { describe, expect, it } from "vitest";
-import { blankProjectSource, playgroundPresets } from "../src/playground/presets";
+import { blankProjectSource, playgroundPresets, presetsForView } from "../src/playground/presets";
 import { compileMindTree } from "../src/scripting/compiler";
 
 describe("compileMindTree", () => {
@@ -52,8 +52,19 @@ describe("compileMindTree", () => {
     for (const preset of playgroundPresets) {
       const result = compileMindTree(preset.source);
       expect(result.diagnostics, preset.id).toEqual([]);
-      expect(result.document?.view).toBe(preset.id);
+      expect(result.document?.view).toBe(preset.view);
     }
+  });
+
+  it("offers several real-world templates for technical visual languages", () => {
+    for (const view of ["data", "algorithm", "logic", "neural"] as const) {
+      expect(presetsForView(view).length, view).toBeGreaterThanOrEqual(3);
+      expect(presetsForView(view).length, view).toBeLessThanOrEqual(5);
+    }
+    expect(playgroundPresets.some((preset) => preset.id === "logic-scientific-calculator")).toBe(true);
+    expect(playgroundPresets.some((preset) => preset.id === "data-lru-cache")).toBe(true);
+    expect(playgroundPresets.some((preset) => preset.id === "algorithm-dijkstra")).toBe(true);
+    expect(playgroundPresets.some((preset) => preset.id === "neural-image-classifier")).toBe(true);
   });
 
   it("accepts an explicitly declared blank project", () => {
@@ -147,6 +158,26 @@ connect review -> ready "yes"`);
     });
   });
 
+  it("compiles a diagram-wide font scale", () => {
+    const result = compileMindTree(`diagram readable "Readable"
+@view tree
+@font-scale 130
+question intro "Tell me about yourself"`);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.document?.fontScale).toBe(130);
+  });
+
+  it("rejects invalid global font scales", () => {
+    const result = compileMindTree(`diagram readable "Readable"
+@font-scale 200
+question intro "Tell me about yourself"
+  @font-scale 120`);
+
+    expect(result.document).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(2);
+  });
+
   it("reports invalid typography settings", () => {
     const result = compileMindTree(`text reminder "Reminder"
   @font display
@@ -171,6 +202,24 @@ connect review -> ready "yes"`);
     const result = compileMindTree(`question project "Describe a difficult project"
   @category unquoted
   @width enormous`);
+
+    expect(result.document).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(2);
+  });
+
+  it("compiles exact box dimensions written by canvas resizing", () => {
+    const result = compileMindTree(`question project "Describe a difficult project"
+  @size "420x240"`);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.document?.nodes[0]).toMatchObject({ boxWidth: 420, boxHeight: 240 });
+  });
+
+  it("rejects malformed or unsafe box dimensions", () => {
+    const result = compileMindTree(`question first "One"
+  @size "100x40"
+question second "Two"
+  @size "not-a-size"`);
 
     expect(result.document).toBeUndefined();
     expect(result.diagnostics).toHaveLength(2);

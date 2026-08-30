@@ -588,7 +588,7 @@ test("changes the workspace language without changing the script", async ({ page
   await expect(page.locator(".cm-content")).toHaveText(source ?? "");
 });
 
-test("uses translucent color surfaces for controls and graph nodes in light mode", async ({ page }) => {
+test("uses translucent controls and opaque tinted graph nodes in light mode", async ({ page }) => {
   await page.goto("/app/");
   await page.getByRole("button", { name: "Toggle theme" }).click();
 
@@ -601,9 +601,15 @@ test("uses translucent color surfaces for controls and graph nodes in light mode
 
   expect(cardBackground).toMatch(/(?:rgba\(.*0\.|\/\s*0\.)/);
   expect(nodeFills.length).toBeGreaterThan(2);
-  expect(nodeFills.every((fill) => /(?:rgba\(.*0\.|\/\s*0\.)/.test(fill))).toBe(true);
+  expect(nodeFills.every((fill) => !/(?:rgba\(.*0\.|\/\s*0\.)/.test(fill))).toBe(true);
   expect(nodeFills.every((fill) => !/255\s*,\s*255\s*,\s*255/.test(fill))).toBe(true);
   expect(new Set(nodeFills).size).toBeGreaterThan(2);
+
+  await page.getByPlaceholder("Search nodes").fill("no matching node");
+  const nodeOpacities = await page
+    .locator(".branchscript-node-body")
+    .evaluateAll((elements) => elements.map((element) => getComputedStyle(element).opacity));
+  expect(nodeOpacities.every((opacity) => opacity === "1")).toBe(true);
 });
 
 test("collapses, restores, and resizes the source panel", async ({ page }) => {

@@ -106,12 +106,14 @@ step prototype "Build a focused prototype"
 | `@color` | `green`, `blue`, `amber`, `purple`, `red`, `gray` |
 | `@category` | Quoted category label, up to 60 characters |
 | `@width` | `compact`, `normal`, `wide` |
+| `@size` | Exact quoted canvas size such as `"420x240"` (width `120–1200`, height `60–900`) |
 | `@shape` | `card`, `pill`, `diamond`, `circle` |
 | `@status` | `idea`, `active`, `done`, `blocked` |
 | `@priority` | `low`, `normal`, `high` |
 | `@tag` | One or more searchable tags |
 | `@font` | `sans`, `serif`, `mono` |
 | `@font-size` | An integer from `10` through `48` |
+| `@font-scale` | Unindented diagram-wide text scale from `80` through `150` |
 | `@font-weight` | `regular`, `medium`, `bold` |
 | `@align` | `left`, `center`, `right` |
 
@@ -125,6 +127,8 @@ question project "Describe a difficult project."
     @category "Behavioral"
     @width wide
 ```
+
+Selecting a box on the canvas reveals edge and corner handles. Dragging a handle writes an exact `@size` attribute back into the same `.mtree` source, so the dimensions survive local saves, cloud saves, imports, and exports. Circle and neuron boxes keep a square aspect ratio.
 
 Use categories for a small number of meaningful groups—such as `Opening`, `Technical`, `Behavioral`, `Role fit`, and `Closing`. Use tags for detailed search terms; too many visual categories reduce rather than improve readability.
 

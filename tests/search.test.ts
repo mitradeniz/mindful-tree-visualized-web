@@ -10,7 +10,11 @@ describe("canvas search", () => {
   response concise "Concise introduction"
     @answer "I build reliable services."
     followup ownership "What did you own?"
-      @feature "Probe: trade-offs"`).document!;
+      @feature "Probe: trade-offs"
+question mvvm "Do you have experience with MVVM?"
+  @text "Discuss architecture fundamentals"
+record profile "Candidate profile"
+  @fields "role = Android engineer | specialty = Kotlin specialist"`).document!;
 
   it("searches ids, labels, rich content, and tags", () => {
     expect(matchingNodeIds(document, "intro")).toEqual(["intro", "concise"]);
@@ -21,8 +25,20 @@ describe("canvas search", () => {
   });
 
   it("returns matches in stable document order for Enter-key cycling", () => {
-    expect(matchingNodeIds(document, "i")).toEqual(["intro", "concise", "ownership"]);
+    expect(matchingNodeIds(document, "i")).toEqual(["intro", "concise", "ownership", "mvvm", "profile"]);
     expect(nodeMatchesSearch(document.nodes[0]!, "BACKEND")).toBe(true);
     expect(matchingNodeIds(document, "")).toEqual([]);
+  });
+
+  it("matches separated words, partial word sets, and small typing errors", () => {
+    expect(matchingNodeIds(document, "mvvm experience")[0]).toBe("mvvm");
+    expect(matchingNodeIds(document, "architecture experience")[0]).toBe("mvvm");
+    expect(matchingNodeIds(document, "experiance")).toContain("mvvm");
+    expect(matchingNodeIds(document, "kotlin")).toEqual(["profile"]);
+  });
+
+  it("normalizes punctuation and diacritics", () => {
+    expect(matchingNodeIds(document, "trade offs")).toEqual(["ownership"]);
+    expect(matchingNodeIds(document, "INTRODUCTION")).toEqual(["concise"]);
   });
 });

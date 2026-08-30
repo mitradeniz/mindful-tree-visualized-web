@@ -74,6 +74,8 @@ export const graphNodeSchema = z.object({
   fontWeight: z.enum(fontWeights).optional(),
   textAlign: z.enum(textAlignments).optional(),
   width: z.enum(nodeWidths).optional(),
+  boxWidth: z.number().int().min(120).max(1_200).optional(),
+  boxHeight: z.number().int().min(60).max(900).optional(),
   source: sourceSpanSchema,
 });
 
@@ -90,6 +92,7 @@ export const graphDocumentSchema = z.object({
   id: identifierSchema,
   title: z.string().min(1).max(160),
   view: z.enum(diagramViews),
+  fontScale: z.number().int().min(80).max(150).default(100),
   nodes: z.array(graphNodeSchema).max(2_000),
   edges: z.array(graphEdgeSchema).max(5_000),
 });

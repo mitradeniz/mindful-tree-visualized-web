@@ -54,7 +54,7 @@ interface PendingConnection extends PendingReference {
 }
 
 const statementPattern = /^(tree|diagram|topic|question|response|followup|note|text|example|input|layer|neuron|process|decision|outcome|output|step|choice|result|start|function|operation|condition|loop|return|array|item|stack|queue|list|record|pointer)\s+([A-Za-z][\w-]*)\s+"((?:[^"\\]|\\.)*)"\s*$/;
-const attributePattern = /^@(tag|priority|view|color|shape|status|category|width|font|font-size|font-weight|align|text|answer|feature|items|fields)\s+(.+?)\s*$/;
+const attributePattern = /^@(tag|priority|view|font-scale|color|shape|status|category|width|size|font|font-size|font-weight|align|text|answer|feature|items|fields)\s+(.+?)\s*$/;
 const referencePattern = /^->\s+([A-Za-z][\w-]*)\s*$/;
 const connectionPattern = /^connect\s+([A-Za-z][\w-]*)\s+->\s+([A-Za-z][\w-]*)(?:\s+"((?:[^"\\]|\\.)*)")?\s*$/;
 const nodeKindSet = new Set<string>(nodeKinds);
@@ -194,6 +194,7 @@ export function compileMindTree(source: string): CompileResult {
   let title = "Untitled BranchScript";
   let treeSeen = false;
   let view: DiagramView = "tree";
+  let fontScale = 100;
 
   for (let index = 0; index < lines.length; index += 1) {
     const rawLine = lines[index] ?? "";
@@ -352,6 +353,21 @@ export function compileMindTree(source: string): CompileResult {
         }
         continue;
       }
+      if (name === "font-scale") {
+        const parsedScale = Number(value);
+        if (indent !== 0 || owner) {
+          diagnostics.push(
+            diagnostic("The global font scale must be unindented.", lineNumber, 1, offset, offset + rawLine.length),
+          );
+        } else if (!Number.isInteger(parsedScale) || parsedScale < 80 || parsedScale > 150) {
+          diagnostics.push(
+            diagnostic("Global font scale must be an integer from 80 to 150.", lineNumber, contentStart + 1, offset + contentStart, offset + rawLine.length),
+          );
+        } else {
+          fontScale = parsedScale;
+        }
+        continue;
+      }
       if (!owner || indent !== owner.indent + 2) {
         diagnostics.push(
           diagnostic("Attributes must be indented directly below a node.", lineNumber, 1, offset, offset + rawLine.length),
@@ -416,6 +432,19 @@ export function compileMindTree(source: string): CompileResult {
           );
         } else {
           owner.node.width = value as NodeWidth;
+        }
+      } else if (name === "size") {
+        const decoded = decodeAttributeText(value);
+        const match = decoded?.match(/^(\d{2,4})x(\d{2,4})$/);
+        const boxWidth = Number(match?.[1]);
+        const boxHeight = Number(match?.[2]);
+        if (!match || boxWidth < 120 || boxWidth > 1_200 || boxHeight < 60 || boxHeight > 900) {
+          diagnostics.push(
+            diagnostic("Size must be quoted as widthxheight, from 120x60 through 1200x900.", lineNumber, contentStart + 1, offset + contentStart, offset + rawLine.length),
+          );
+        } else {
+          owner.node.boxWidth = boxWidth;
+          owner.node.boxHeight = boxHeight;
         }
       } else if (name === "font") {
         if (!fontFamilySet.has(value)) {
@@ -622,6 +651,7 @@ export function compileMindTree(source: string): CompileResult {
     id: documentId,
     title,
     view,
+    fontScale,
     nodes,
     edges,
   });
