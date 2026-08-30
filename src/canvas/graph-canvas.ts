@@ -17,6 +17,8 @@ interface CanvasCallbacks {
   onQuickAdd: () => void;
   onCanvasTap: (position: Point) => void;
   onNodeEdit: (nodeId: string) => void;
+  onConnect: (sourceId: string, targetId: string) => void;
+  onNodeTitleChange: (nodeId: string, label: string) => void;
   onNodeResize: (nodeId: string, size: NodeSize, position: Point) => void;
   onContextMenu: (request: { clientX: number; clientY: number; nodeId: string | null }) => void;
 }
@@ -198,6 +200,7 @@ export class GraphCanvas {
   private readonly keyboard: Keyboard;
   private readonly minimap: MiniMap;
   private readonly resizeFrame: HTMLDivElement;
+  private readonly inlineTitleEditor: HTMLInputElement;
   private document: GraphDocument | null = null;
   private edgeVisibilityFrame: number | null = null;
   private zoomFrame: number | null = null;
@@ -212,6 +215,8 @@ export class GraphCanvas {
   private resizeSession: ResizeSession | null = null;
   private minimapPointerId: number | null = null;
   private minimapMouseDragging = false;
+  private editingLocked = false;
+  private inlineTitleNodeId: string | null = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -241,7 +246,17 @@ export class GraphCanvas {
         edgeLabelMovable: false,
         edgeMovable: false,
         vertexMovable: false,
-        magnetConnectable: false,
+        magnetConnectable: true,
+      },
+      connecting: {
+        allowBlank: false,
+        allowLoop: false,
+        allowNode: false,
+        allowEdge: false,
+        allowPort: true,
+        highlight: true,
+        snap: { radius: 24 },
+        validateConnection: ({ sourceCell, targetCell }) => sourceCell !== targetCell,
       },
     });
 
@@ -289,6 +304,24 @@ export class GraphCanvas {
     }
     this.container.append(this.resizeFrame);
 
+    this.inlineTitleEditor = window.document.createElement("input");
+    this.inlineTitleEditor.type = "text";
+    this.inlineTitleEditor.className = "node-title-inline-editor";
+    this.inlineTitleEditor.hidden = true;
+    this.inlineTitleEditor.maxLength = 160;
+    this.inlineTitleEditor.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        this.commitInlineTitleEdit();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        this.cancelInlineTitleEdit();
+      }
+    });
+    this.inlineTitleEditor.addEventListener("blur", () => this.commitInlineTitleEdit());
+    this.container.append(this.inlineTitleEditor);
+
     this.container.addEventListener("wheel", this.onCanvasWheel, { passive: false });
     this.container.addEventListener("pointerdown", this.onCanvasPointerDown, { capture: true, passive: false });
     this.container.addEventListener("pointermove", this.onCanvasPointerMove, { capture: true, passive: false });
@@ -300,18 +333,38 @@ export class GraphCanvas {
     this.graph.on("blank:click", ({ e }) => {
       this.callbacks.onCanvasTap(this.clientPointToGraph(e.clientX, e.clientY));
     });
-    this.graph.on("blank:dblclick", () => this.callbacks.onQuickAdd());
+    this.graph.on("blank:dblclick", () => {
+      if (!this.editingLocked) this.callbacks.onQuickAdd();
+    });
     this.graph.on("node:dblclick", ({ e, node }) => {
+      if (this.editingLocked) return;
       e.preventDefault();
       e.stopPropagation();
       this.focusNode(node.id, false);
+      this.openInlineTitleEditor(node);
+    });
+    this.graph.on("node:click", ({ e, node }) => {
+      if (this.editingLocked || this.isConnectionPortTarget(e.target)) return;
+      this.focusNode(node.id, false);
       this.callbacks.onNodeEdit(node.id);
-      window.setTimeout(() => this.zoomToNode(node), 80);
+    });
+    this.graph.on("edge:connected", ({ edge }) => {
+      if (this.editingLocked || edge.getData<{ initial?: boolean }>()?.initial) {
+        edge.remove();
+        return;
+      }
+      const sourceId = edge.getSourceCellId();
+      const targetId = edge.getTargetCellId();
+      edge.remove();
+      if (!sourceId || !targetId || sourceId === targetId) return;
+      this.callbacks.onConnect(sourceId, targetId);
     });
     this.graph.on("blank:contextmenu", ({ e }) => {
+      if (this.editingLocked) return;
       this.callbacks.onContextMenu({ clientX: e.clientX, clientY: e.clientY, nodeId: null });
     });
     this.graph.on("node:contextmenu", ({ e, node }) => {
+      if (this.editingLocked) return;
       this.focusNode(node.id, false);
       this.callbacks.onContextMenu({ clientX: e.clientX, clientY: e.clientY, nodeId: node.id });
     });
@@ -324,7 +377,7 @@ export class GraphCanvas {
         .getSelectedCells()
         .filter((cell) => cell.isNode())
         .map((cell) => cell.id);
-      this.selectedResizeNodeId = nodeIds.length === 1 ? nodeIds[0] ?? null : null;
+      this.selectedResizeNodeId = !this.editingLocked && nodeIds.length === 1 ? nodeIds[0] ?? null : null;
       this.scheduleResizeFrame();
       this.callbacks.onSelect(nodeIds);
     });
@@ -341,6 +394,56 @@ export class GraphCanvas {
       this.history.redo();
       return false;
     });
+  }
+
+  setEditingLocked(locked: boolean): void {
+    this.editingLocked = locked;
+    if (locked) {
+      this.selectedResizeNodeId = null;
+      this.resizeFrame.hidden = true;
+      this.cancelInlineTitleEdit();
+    } else {
+      this.scheduleResizeFrame();
+    }
+  }
+
+  private isConnectionPortTarget(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest(".branchscript-connection-port") !== null;
+  }
+
+  private openInlineTitleEditor(node: Node): void {
+    const sourceNode = this.document?.nodes.find((candidate) => candidate.id === node.id);
+    if (!sourceNode) return;
+    const element = this.container.querySelector<HTMLElement>(`.x6-node[data-cell-id="${CSS.escape(node.id)}"]`);
+    if (!element) return;
+    const bounds = element.getBoundingClientRect();
+    const canvasBounds = this.container.getBoundingClientRect();
+    const horizontalInset = Math.min(28, Math.max(12, bounds.width * 0.1));
+    const verticalOffset = sourceNode.shape === "circle" ? bounds.height * 0.34 : Math.min(34, Math.max(14, bounds.height * 0.22));
+    this.inlineTitleNodeId = node.id;
+    this.inlineTitleEditor.value = sourceNode.label;
+    this.inlineTitleEditor.style.left = `${bounds.left - canvasBounds.left + horizontalInset}px`;
+    this.inlineTitleEditor.style.top = `${bounds.top - canvasBounds.top + verticalOffset}px`;
+    this.inlineTitleEditor.style.width = `${Math.max(76, bounds.width - horizontalInset * 2)}px`;
+    this.inlineTitleEditor.hidden = false;
+    window.requestAnimationFrame(() => {
+      this.inlineTitleEditor.focus();
+      this.inlineTitleEditor.select();
+    });
+  }
+
+  private commitInlineTitleEdit(): void {
+    const nodeId = this.inlineTitleNodeId;
+    if (!nodeId) return;
+    const label = this.inlineTitleEditor.value.trim();
+    this.inlineTitleNodeId = null;
+    this.inlineTitleEditor.hidden = true;
+    if (label) this.callbacks.onNodeTitleChange(nodeId, label);
+  }
+
+  private cancelInlineTitleEdit(): void {
+    this.inlineTitleNodeId = null;
+    this.inlineTitleEditor.hidden = true;
   }
 
   private readonly onMinimapPointerDown = (event: PointerEvent): void => {
@@ -537,6 +640,7 @@ export class GraphCanvas {
   }
 
   private readonly onResizeHandlePointerDown = (event: PointerEvent): void => {
+    if (this.editingLocked) return;
     if (event.button !== 0 && event.pointerType !== "touch") return;
     const handle = event.currentTarget as HTMLButtonElement;
     const direction = handle.dataset.resizeHandle as ResizeDirection | undefined;
@@ -718,6 +822,7 @@ export class GraphCanvas {
     forceLayout = false,
   ): Record<string, Point> {
     if (this.resizeSession) this.endResizeSession();
+    this.cancelInlineTitleEdit();
     this.selectedResizeNodeId = null;
     this.resizeFrame.hidden = true;
     this.document = document;
@@ -751,6 +856,7 @@ export class GraphCanvas {
         id: edge.id,
         source: edge.source,
         target: edge.target,
+        data: { initial: true },
         zIndex: 0,
         ...(smooth ? {} : { router: { name: "orth", args: { padding: 24 } } }),
         connector: smooth
@@ -820,7 +926,35 @@ export class GraphCanvas {
       else if (shape === "circle") metadata = this.neuronMetadata(node, position);
       else metadata = this.cardMetadata(node, position, shape);
     }
-    return this.scaleNodeMetadata(metadata);
+    const scaled = this.scaleNodeMetadata(metadata);
+    scaled.ports = this.connectionPorts(node);
+    return scaled;
+  }
+
+  private connectionPorts(node: GraphNode) {
+    const colors = paletteForNode(node);
+    const port = {
+      r: 5,
+      magnet: true,
+      stroke: colors.stroke,
+      strokeWidth: 2,
+      fill: nodeFill(colors),
+      class: "branchscript-connection-port",
+    };
+    return {
+      groups: {
+        top: { position: "top", attrs: { circle: port } },
+        right: { position: "right", attrs: { circle: port } },
+        bottom: { position: "bottom", attrs: { circle: port } },
+        left: { position: "left", attrs: { circle: port } },
+      },
+      items: [
+        { id: "top", group: "top" },
+        { id: "right", group: "right" },
+        { id: "bottom", group: "bottom" },
+        { id: "left", group: "left" },
+      ],
+    };
   }
 
   private scaleNodeMetadata(metadata: Node.Metadata): Node.Metadata {
@@ -991,6 +1125,7 @@ export class GraphCanvas {
         strokeWidth: 1,
       };
       attrs.feature = {
+        class: "branchscript-node-feature",
         text: `${this.featureCaption()} · ${node.feature}`,
         x: 25,
         y: size.height - 17,
@@ -1174,6 +1309,7 @@ export class GraphCanvas {
           textWrap: { width: size.width - 106, height: 38, ellipsis: true },
         },
         feature: {
+          class: "branchscript-node-feature",
           text: node.feature ? `${this.featureCaption()} · ${node.feature}` : "",
           x: size.width / 2,
           y: size.height - 29,
@@ -1233,7 +1369,7 @@ export class GraphCanvas {
         kind: {
           text: this.nodeCaption(node),
           x: size.width / 2,
-          y: 43,
+          y: Math.max(32, size.height * 0.23),
           refX: 0,
           refY: 0,
           fill: colors.accent,
@@ -1245,7 +1381,7 @@ export class GraphCanvas {
         label: {
           text: node.label,
           x: size.width / 2,
-          y: detail ? size.height / 2 - 2 : size.height / 2 + 11,
+          y: detail ? size.height * 0.46 : size.height * 0.52,
           refX: 0,
           refY: 0,
           fill: "#f2f6ff",
@@ -1253,12 +1389,12 @@ export class GraphCanvas {
           fontWeight: 650,
           textAnchor: "middle",
           textVerticalAnchor: "middle",
-          textWrap: { width: size.width - 32, height: detail ? 30 : 42, ellipsis: true },
+          textWrap: { width: Math.max(48, size.width * 0.68), height: detail ? Math.max(30, size.height * 0.18) : Math.max(42, size.height * 0.28), ellipsis: true },
         },
         detail: {
           text: detail,
           x: size.width / 2,
-          y: size.height / 2 + 29,
+          y: size.height * 0.65,
           refX: 0,
           refY: 0,
           fill: "#c7d7e9",
@@ -1266,19 +1402,20 @@ export class GraphCanvas {
           fontWeight: node.answer ? 620 : 450,
           textAnchor: "middle",
           textVerticalAnchor: "middle",
-          textWrap: { width: size.width - 42, height: 34, ellipsis: true },
+          textWrap: { width: Math.max(42, size.width * 0.6), height: Math.max(34, size.height * 0.2), ellipsis: true },
         },
         feature: {
+          class: "branchscript-node-feature",
           text: node.feature ?? "",
           x: size.width / 2,
-          y: size.height - 25,
+          y: size.height * 0.82,
           refX: 0,
           refY: 0,
           fill: colors.accent,
           fontSize: 7,
           fontWeight: 800,
           textAnchor: "middle",
-          textWrap: { width: size.width - 50, height: 11, ellipsis: true },
+          textWrap: { width: Math.max(38, size.width * 0.54), height: 11, ellipsis: true },
         },
       },
     };
@@ -1410,6 +1547,7 @@ export class GraphCanvas {
     }
     if (node.feature) {
       attrs.feature = {
+        class: "branchscript-node-feature",
         text: `${this.featureCaption()} · ${node.feature}`,
         x: 14,
         y: size.height - 14,

@@ -804,6 +804,34 @@ a.button {
   touch-action: none;
 }
 
+.x6-node .branchscript-connection-port {
+  cursor: crosshair;
+  opacity: 0.86;
+  transition: r 120ms ease, opacity 120ms ease, fill 120ms ease;
+}
+
+.x6-node:hover .branchscript-connection-port {
+  opacity: 1;
+}
+
+.node-title-inline-editor {
+  position: absolute;
+  z-index: 30;
+  height: 30px;
+  padding: 3px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  outline: 0;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 20px var(--shadow);
+  color: var(--text);
+  font: 700 13px/1.2 Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.node-title-inline-editor[hidden] {
+  display: none;
+}
+
 .node-resize-frame {
   position: absolute;
   z-index: 24;
@@ -1661,6 +1689,10 @@ a.button {
   border-top: 1px solid var(--border);
 }
 
+.quick-connect[hidden] {
+  display: none;
+}
+
 .section-heading {
   display: flex;
   align-items: center;
@@ -2122,6 +2154,10 @@ a.button {
 :root[data-theme="light"] .x6-node text[font-size="8"],
 :root[data-theme="light"] .x6-node text[font-size="9"] {
   fill: #526b62;
+}
+
+:root[data-theme="light"] .x6-node .branchscript-node-feature {
+  fill: #29483c !important;
 }
 
 @media (max-width: 900px) {

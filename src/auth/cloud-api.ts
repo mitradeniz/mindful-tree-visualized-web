@@ -27,6 +27,7 @@ interface ApiErrorBody {
 
 const requestTimeoutMs = 15_000;
 const maxResponseBytes = 12 * 1024 * 1024;
+const maxCloudDiagrams = 25;
 const diagramIdSchema = z.number().int().positive();
 const nodeIdSchema = z.string().regex(/^[A-Za-z][\w-]*$/).max(80);
 const emailSchema = z.string().email().max(254);
@@ -60,7 +61,7 @@ const diagramSchema = z.object({
 const diagramWriteSchema = diagramSchema.pick({ title: true, source: true, view: true, workspace: true });
 const diagramListSchema = z
   .array(diagramSchema)
-  .max(100)
+  .max(maxCloudDiagrams)
   .refine((diagrams) => diagrams.reduce((total, diagram) => total + diagram.source.length, 0) <= 10_000_000);
 const apiErrorSchema = z.object({ error: z.string().max(80).optional() });
 
@@ -258,7 +259,7 @@ export function authErrorMessage(error: unknown): string {
     err_wrong_code: "The verification code is incorrect.",
     err_code_expired: "The verification code has expired.",
     err_revision_conflict: "This diagram changed elsewhere. Reopen it before saving.",
-    err_diagram_limit: "Your cloud library has reached the 100-diagram limit.",
+    err_diagram_limit: "Your cloud library has reached the 25-diagram limit.",
     err_origin_denied: "This request was blocked by the security policy.",
     err_service_unavailable: "Account services are temporarily unavailable.",
     err_already_verified: "This email is already verified. You can sign in.",

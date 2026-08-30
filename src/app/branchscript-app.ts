@@ -63,14 +63,48 @@ interface ShapePalettePreset {
   name: string;
   shapeName: string;
   label: string;
+  keepNativeShape?: boolean;
 }
 
-const shapePalettePresets: readonly ShapePalettePreset[] = [
+const defaultShapePalette: readonly ShapePalettePreset[] = [
   { shape: "card", kind: "process", name: "Step", shapeName: "Card", label: "New step" },
   { shape: "pill", kind: "start", name: "Start", shapeName: "Pill", label: "New start" },
   { shape: "diamond", kind: "decision", name: "Choice", shapeName: "Diamond", label: "New decision" },
   { shape: "circle", kind: "neuron", name: "Node", shapeName: "Circle", label: "New node" },
 ];
+
+const shapePalettes: Partial<Record<DiagramView, readonly ShapePalettePreset[]>> = {
+  flow: [
+    { shape: "card", kind: "process", name: "Step", shapeName: "Process", label: "New step" },
+    { shape: "pill", kind: "input", name: "Input", shapeName: "Input", label: "New input" },
+    { shape: "diamond", kind: "decision", name: "Choice", shapeName: "Decision", label: "New decision" },
+    { shape: "circle", kind: "outcome", name: "Result", shapeName: "Outcome", label: "New result" },
+  ],
+  neural: [
+    { shape: "card", kind: "input", name: "Input", shapeName: "Signal", label: "New input" },
+    { shape: "pill", kind: "layer", name: "Layer", shapeName: "Layer", label: "New layer" },
+    { shape: "diamond", kind: "output", name: "Output", shapeName: "Output", label: "New output" },
+    { shape: "circle", kind: "neuron", name: "Neuron", shapeName: "Neuron", label: "New neuron" },
+  ],
+  logic: [
+    { shape: "card", kind: "input", name: "Input", shapeName: "Input", label: "New input" },
+    { shape: "pill", kind: "outcome", name: "Result", shapeName: "Result", label: "New result" },
+    { shape: "diamond", kind: "decision", name: "Choice", shapeName: "Decision", label: "New decision" },
+    { shape: "circle", kind: "note", name: "Note", shapeName: "Note", label: "New note" },
+  ],
+  algorithm: [
+    { shape: "card", kind: "operation", name: "Step", shapeName: "Operation", label: "New step" },
+    { shape: "pill", kind: "start", name: "Start", shapeName: "Start", label: "New start" },
+    { shape: "diamond", kind: "condition", name: "Choice", shapeName: "Condition", label: "New decision" },
+    { shape: "circle", kind: "return", name: "Result", shapeName: "Return", label: "New result" },
+  ],
+  data: [
+    { shape: "card", kind: "array", name: "Array", shapeName: "Collection", label: "New array", keepNativeShape: true },
+    { shape: "pill", kind: "queue", name: "Queue", shapeName: "Queue", label: "New queue", keepNativeShape: true },
+    { shape: "diamond", kind: "record", name: "Record", shapeName: "Record", label: "New record", keepNativeShape: true },
+    { shape: "circle", kind: "pointer", name: "Pointer", shapeName: "Reference", label: "New pointer", keepNativeShape: true },
+  ],
+};
 
 const sourcePanelLayoutKey = "branchscript-source-panel-layout";
 const maxImportBytes = 1_048_576;
@@ -125,6 +159,8 @@ export class BranchScriptApp {
   private sourcePanelCollapsed = false;
   private sourcePanelPointerId: number | null = null;
   private editingNodeId: string | null = null;
+  private quickEditorTimer: number | null = null;
+  private syncingQuickEditor = false;
   private searchResultIndex = -1;
   private searchResultQuery = "";
   private pendingShape: NodeShape | null = null;
@@ -163,6 +199,8 @@ export class BranchScriptApp {
       onQuickAdd: () => this.openQuickBuilder(),
       onCanvasTap: (position) => this.placePendingShape(position),
       onNodeEdit: (nodeId) => this.openNodeEditor(nodeId),
+      onConnect: (sourceId, targetId) => this.addDirectConnection(sourceId, targetId),
+      onNodeTitleChange: (nodeId, label) => this.renameNode(nodeId, label),
       onNodeResize: (nodeId, size, position) => this.resizeNode(nodeId, size, position),
       onContextMenu: (request) => this.openCanvasContextMenu(request),
       onPositionsChange: (positions) => {
@@ -195,9 +233,9 @@ export class BranchScriptApp {
             <button class="button ghost account-action" id="account-button" type="button">Sign in</button>
             <button class="button ghost" id="guide-button" type="button">Learn</button>
             <button class="button ghost" id="template-library-button" type="button">Examples</button>
-            <button class="button ghost" id="import-button" type="button">Import</button>
+            <button class="button ghost" id="import-button" type="button">Import .mtree / .json</button>
             <button class="button ghost" id="export-source-button" type="button">Export .mtree</button>
-            <button class="button ghost" id="export-project-button" type="button">Export project</button>
+            <button class="button ghost" id="export-project-button" type="button">Export workspace .json</button>
             <label class="language-control">
               <span class="sr-only">Language</span>
               <select id="language-select" aria-label="Language">
@@ -205,7 +243,7 @@ export class BranchScriptApp {
               </select>
             </label>
             <button class="icon-button" id="theme-button" type="button" aria-label="Toggle theme">◐</button>
-            <input id="file-input" type="file" accept=".mtree,.json,text/plain,application/json" hidden />
+            <input id="file-input" type="file" accept=".mtree,.branchscript.json,.json,text/plain,application/json" hidden />
           </div>
         </header>
 
@@ -331,7 +369,7 @@ export class BranchScriptApp {
                 </div>
                 <button class="icon-button" id="quick-builder-close" type="button" aria-label="Close visual builder">×</button>
               </header>
-              <section class="shape-palette" aria-labelledby="shape-palette-title">
+              <section class="shape-palette" id="shape-palette" aria-labelledby="shape-palette-title">
                 <div class="shape-palette-heading">
                   <strong id="shape-palette-title">Drag shapes onto the canvas</strong>
                   <span>Drag to place. On touch, choose a shape and tap the canvas.</span>
@@ -378,7 +416,7 @@ export class BranchScriptApp {
                   <span>Supporting text</span>
                   <textarea id="quick-text" name="text" maxlength="420" rows="3" placeholder="Context, reminder, or explanation shown inside the box"></textarea>
                 </label>
-                <button class="button ghost field-wide advanced-toggle" id="quick-advanced-toggle" type="button" aria-expanded="false" aria-controls="quick-advanced-settings">Show advanced settings</button>
+                <button class="button ghost field-wide advanced-toggle" id="quick-advanced-toggle" type="button" aria-expanded="false" aria-controls="quick-advanced-settings quick-connect-section">Show more options</button>
                 <div id="quick-advanced-settings" class="quick-advanced field-wide" hidden>
                   <label class="field field-wide">
                     <span>Prepared answer</span>
@@ -471,7 +509,7 @@ export class BranchScriptApp {
                 </div>
                 <button class="button primary field-wide" id="quick-node-submit" type="submit">Add box</button>
               </form>
-              <section class="quick-connect">
+              <section class="quick-connect" id="quick-connect-section" hidden>
                 <div class="section-heading"><strong>Connect boxes</strong><span>Optional label</span></div>
                 <form id="quick-connect-form" class="quick-form">
                   <label class="field"><span>From</span><select id="quick-source" required></select></label>
@@ -560,7 +598,7 @@ export class BranchScriptApp {
                   <div><span class="eyebrow">SIGNED IN</span><strong id="account-email"></strong></div>
                   <button class="button ghost compact" id="logout-button" type="button">Sign out</button>
                 </div>
-                <div class="cloud-library-heading"><div><h2>Your cloud diagrams</h2><p>Up to 100 most recently edited diagrams.</p></div><button class="button primary compact" id="library-save-button" type="button">Save current</button></div>
+                <div class="cloud-library-heading"><div><h2>Your cloud diagrams</h2><p>Up to 25 privately saved diagrams.</p></div><button class="button primary compact" id="library-save-button" type="button">Save current</button></div>
                 <div id="cloud-diagram-list" class="cloud-diagram-list"><p class="empty-message">Loading diagrams…</p></div>
               </section>
             </div>
@@ -632,7 +670,7 @@ export class BranchScriptApp {
   }
 
   private shapePaletteMarkup(): string {
-    return shapePalettePresets
+    return this.shapePaletteForCurrentView()
       .map(
         (preset) => `
           <button class="shape-palette-item" type="button" data-shape-preset="${preset.shape}" aria-label="${t("Drag {name} shape", { name: t(preset.name) })}" aria-pressed="false">
@@ -642,6 +680,28 @@ export class BranchScriptApp {
         `,
       )
       .join("");
+  }
+
+  private shapePaletteForCurrentView(): readonly ShapePalettePreset[] {
+    const view = this.store.get().document?.view;
+    return view ? shapePalettes[view] ?? defaultShapePalette : defaultShapePalette;
+  }
+
+  private refreshShapePalette(view: DiagramView): void {
+    const presets = shapePalettes[view] ?? defaultShapePalette;
+    const buttons = [...this.root.querySelectorAll<HTMLButtonElement>("[data-shape-preset]")];
+    presets.forEach((preset, index) => {
+      const button = buttons[index];
+      if (!button) return;
+      button.dataset.shapePreset = preset.shape;
+      button.setAttribute("aria-label", t("Drag {name} shape", { name: t(preset.name) }));
+      const preview = button.querySelector<HTMLElement>(".shape-palette-preview");
+      if (preview) preview.className = `shape-palette-preview ${preset.shape}`;
+      const name = button.querySelector("strong");
+      if (name) name.textContent = t(preset.name);
+      const shapeName = button.querySelector("small");
+      if (shapeName) shapeName.textContent = t(preset.shapeName);
+    });
   }
 
   private bindControls(): void {
@@ -690,7 +750,7 @@ export class BranchScriptApp {
       this.openQuickBuilder();
     });
     this.requireElement("add-node-button").addEventListener("click", () => this.openQuickBuilder());
-    this.requireElement("quick-builder-close").addEventListener("click", () => this.closeQuickBuilder());
+    this.requireElement("quick-builder-close").addEventListener("click", () => this.closeQuickBuilder(true, true));
     this.requireElement("shape-placement-cancel").addEventListener("click", () => this.setPendingShape(null));
     this.bindShapePalette();
     this.requireElement("quick-advanced-toggle").addEventListener("click", () => {
@@ -699,6 +759,7 @@ export class BranchScriptApp {
     });
     this.requireElement("quick-node-form").addEventListener("submit", (event) => this.addQuickNode(event));
     this.requireElement("quick-connect-form").addEventListener("submit", (event) => this.addQuickConnection(event));
+    this.bindQuickEditorSync();
     this.requireElement("editor-undo").addEventListener("click", () => this.editor?.undo());
     this.requireElement("editor-redo").addEventListener("click", () => this.editor?.redo());
     this.requireElement("hide-source-button").addEventListener("click", () => this.setSourcePanelCollapsed(true));
@@ -835,6 +896,9 @@ export class BranchScriptApp {
   }
 
   private onSourceChange(source: string): void {
+    // Source edits can replace the node currently shown in the form. Keeping
+    // that form open would allow stale attributes to be written back later.
+    if (this.editingNodeId && !this.syncingQuickEditor) this.closeQuickBuilder(false);
     this.store.update({ source });
     this.updateStatus("Compiling…", "working");
     if (this.compileTimer !== null) window.clearTimeout(this.compileTimer);
@@ -866,6 +930,7 @@ export class BranchScriptApp {
     this.store.update({ document: result.document });
     (this.requireElement("global-font-scale") as HTMLSelectElement).value = String(result.document.fontScale);
     this.updateViewControls(result.document.view);
+    this.refreshShapePalette(result.document.view);
     this.refreshQuickOptions(result.document);
     const positions = this.canvas?.render(
       result.document,
@@ -1005,7 +1070,7 @@ export class BranchScriptApp {
   }
 
   private shapePreset(shape: NodeShape): ShapePalettePreset | undefined {
-    return shapePalettePresets.find((preset) => preset.shape === shape);
+    return this.shapePaletteForCurrentView().find((preset) => preset.shape === shape);
   }
 
   private setPendingShape(shape: NodeShape | null): void {
@@ -1047,7 +1112,10 @@ export class BranchScriptApp {
       y: Math.round(center.y - size.height / 2),
     };
     this.store.update({ positions: { ...this.store.get().positions, [id]: position } });
-    this.appendScript([`${preset.kind} ${id} ${JSON.stringify(label)}`, `  @shape ${shape}`]);
+    this.appendScript([
+      `${preset.kind} ${id} ${JSON.stringify(label)}`,
+      ...(preset.keepNativeShape ? [] : [`  @shape ${shape}`]),
+    ]);
     this.updateStatus(t("Added {name}", { name: label }), "working");
   }
 
@@ -1062,6 +1130,7 @@ export class BranchScriptApp {
     this.requireElement("quick-builder-title").textContent = t("Add without scripting");
     this.requireElement("quick-node-submit").textContent = t("Add box");
     this.requireElement("quick-parent-field").hidden = false;
+    this.requireElement("shape-palette").hidden = false;
     const panel = this.requireElement("quick-builder");
     panel.hidden = false;
     const graphDocument = this.store.get().document;
@@ -1086,8 +1155,10 @@ export class BranchScriptApp {
     this.closeTemplateLibrary();
     this.refreshQuickOptions(graphDocument);
     this.requireElement("quick-builder-title").textContent = t("Edit box");
-    this.requireElement("quick-node-submit").textContent = t("Save changes");
+    this.requireElement("quick-node-submit").textContent = t("Done");
     this.requireElement("quick-parent-field").hidden = true;
+    this.requireElement("shape-palette").hidden = true;
+    this.requireElement("quick-connect-section").hidden = true;
     (this.requireElement("quick-label") as HTMLInputElement).value = node.label;
     (this.requireElement("quick-text") as HTMLTextAreaElement).value = node.text ?? "";
     (this.requireElement("quick-answer") as HTMLTextAreaElement).value = node.answer ?? "";
@@ -1145,7 +1216,12 @@ export class BranchScriptApp {
     }
   }
 
-  private closeQuickBuilder(clearPlacement = true): void {
+  private closeQuickBuilder(clearPlacement = true, persistPendingEdit = false): void {
+    if (persistPendingEdit && this.editingNodeId) this.flushQuickEditorSync();
+    if (this.quickEditorTimer !== null) {
+      window.clearTimeout(this.quickEditorTimer);
+      this.quickEditorTimer = null;
+    }
     this.requireElement("quick-builder").hidden = true;
     this.editingNodeId = null;
     if (clearPlacement) this.setPendingShape(null);
@@ -1155,8 +1231,9 @@ export class BranchScriptApp {
     const settings = this.requireElement("quick-advanced-settings");
     const toggle = this.requireElement("quick-advanced-toggle");
     settings.hidden = !open;
+    if (!this.editingNodeId) this.requireElement("quick-connect-section").hidden = !open;
     toggle.setAttribute("aria-expanded", String(open));
-    toggle.textContent = t(open ? "Hide advanced settings" : "Show advanced settings");
+    toggle.textContent = t(open ? "Hide extra options" : "Show more options");
   }
 
   private openLearnPanel(): void {
@@ -1335,10 +1412,38 @@ export class BranchScriptApp {
     }
   }
 
+  private bindQuickEditorSync(): void {
+    const form = this.requireElement("quick-node-form");
+    for (const control of form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input, select, textarea")) {
+      control.addEventListener("input", () => this.scheduleQuickEditorSync());
+      control.addEventListener("change", () => this.scheduleQuickEditorSync());
+    }
+  }
+
+  private scheduleQuickEditorSync(): void {
+    if (!this.editingNodeId) return;
+    if (this.quickEditorTimer !== null) window.clearTimeout(this.quickEditorTimer);
+    this.quickEditorTimer = window.setTimeout(() => {
+      this.quickEditorTimer = null;
+      this.flushQuickEditorSync();
+    }, 180);
+  }
+
+  private flushQuickEditorSync(): void {
+    const nodeId = this.editingNodeId;
+    if (!nodeId) return;
+    if (this.quickEditorTimer !== null) {
+      window.clearTimeout(this.quickEditorTimer);
+      this.quickEditorTimer = null;
+    }
+    this.saveQuickNodeEdit(nodeId, { close: false, announce: false });
+  }
+
   private addQuickNode(event: Event): void {
     event.preventDefault();
     if (this.editingNodeId) {
-      this.saveQuickNodeEdit(this.editingNodeId);
+      this.flushQuickEditorSync();
+      this.closeQuickBuilder();
       return;
     }
     const labelInput = this.requireElement("quick-label") as HTMLInputElement;
@@ -1383,7 +1488,7 @@ export class BranchScriptApp {
     window.setTimeout(() => labelInput.focus(), 0);
   }
 
-  private saveQuickNodeEdit(nodeId: string): void {
+  private saveQuickNodeEdit(nodeId: string, options: { close?: boolean; announce?: boolean } = {}): void {
     const node = this.store.get().document?.nodes.find((candidate) => candidate.id === nodeId);
     if (!node) return;
     const label = (this.requireElement("quick-label") as HTMLInputElement).value.trim();
@@ -1423,9 +1528,13 @@ export class BranchScriptApp {
     lines.push(...existingLines.slice(1).filter((line) => !editableAttribute.test(line)));
     const lineBreak = source.includes("\r\n") ? "\r\n" : "\n";
     const updatedSource = `${source.slice(0, node.source.from.offset)}${lines.join(lineBreak)}${source.slice(node.source.to.offset)}`;
-    this.editor?.setValue(updatedSource);
-    this.updateStatus(t("Updated {name}", { name: label }), "working");
-    this.closeQuickBuilder();
+    if (updatedSource !== source) {
+      this.syncingQuickEditor = true;
+      this.editor?.setValue(updatedSource);
+      this.syncingQuickEditor = false;
+    }
+    if (options.announce !== false) this.updateStatus(t("Updated {name}", { name: label }), "working");
+    if (options.close !== false) this.closeQuickBuilder();
   }
 
   private resizeNode(nodeId: string, size: { width: number; height: number }, position: Point): void {
@@ -1461,6 +1570,30 @@ export class BranchScriptApp {
     this.appendScript([`connect ${source} -> ${target}${label ? ` ${JSON.stringify(label)}` : ""}`]);
     labelInput.value = "";
     this.updateStatus("Connected boxes", "working");
+  }
+
+  private addDirectConnection(sourceId: string, targetId: string): void {
+    const graphDocument = this.store.get().document;
+    if (!graphDocument || sourceId === targetId) return;
+    const alreadyConnected = graphDocument.edges.some((edge) => edge.source === sourceId && edge.target === targetId);
+    if (alreadyConnected) return;
+    this.appendScript([`connect ${sourceId} -> ${targetId}`]);
+    this.updateStatus("Connected boxes", "working");
+  }
+
+  private renameNode(nodeId: string, nextLabel: string): void {
+    const node = this.store.get().document?.nodes.find((candidate) => candidate.id === nodeId);
+    const label = nextLabel.trim();
+    if (!node || !label || node.label === label) return;
+    const source = this.store.get().source;
+    const block = source.slice(node.source.from.offset, node.source.to.offset);
+    const lines = block.split(/\r?\n/);
+    const indent = /^\s*/.exec(lines[0] ?? "")?.[0] ?? "";
+    lines[0] = `${indent}${node.kind} ${node.id} ${JSON.stringify(label)}`;
+    const lineBreak = source.includes("\r\n") ? "\r\n" : "\n";
+    const updatedSource = `${source.slice(0, node.source.from.offset)}${lines.join(lineBreak)}${source.slice(node.source.to.offset)}`;
+    this.editor?.setValue(updatedSource);
+    this.updateStatus(t("Updated {name}", { name: label }), "working");
   }
 
   private appendScript(lines: string[]): void {
@@ -1690,6 +1823,7 @@ export class BranchScriptApp {
     }
     const direction = preset.view === "flow" || preset.view === "neural" || preset.view === "data" ? "LR" : "TB";
     this.closeTemplateLibrary();
+    this.closeQuickBuilder();
     this.currentCloudDiagram = null;
     this.setSourceName(preset.filename);
     this.store.update({ source: preset.source, positions: {}, direction, selectedNodeId: null });
@@ -1705,7 +1839,10 @@ export class BranchScriptApp {
       this.closeRunner();
       return;
     }
+    this.closeQuickBuilder();
+    this.closeCanvasContextMenu();
     this.runnerOpen = true;
+    this.canvas?.setEditingLocked(true);
     this.requireElement("playground-runner").hidden = false;
     this.requireElement("live-run-button").textContent = t("■ Stop run");
     this.runPath = [];
@@ -1719,6 +1856,7 @@ export class BranchScriptApp {
     this.requireElement("live-run-button").textContent = t("▶ Live run");
     this.canvas?.clearHighlight();
     this.canvas?.setLiveView(null);
+    this.canvas?.setEditingLocked(false);
   }
 
   private runnerBack(): void {
@@ -2020,6 +2158,7 @@ export class BranchScriptApp {
     }
     const workspace = diagram.workspace ?? {};
     this.currentCloudDiagram = diagram;
+    this.closeQuickBuilder();
     this.setSourceName(this.sourceNameFor(diagram.source, diagram.title));
     this.store.update({
       source: diagram.source,
@@ -2159,6 +2298,7 @@ export class BranchScriptApp {
       if (file.size > maxImportBytes) throw new Error("Import files must be 1 MB or smaller.");
       const text = await file.text();
       this.currentCloudDiagram = null;
+      this.closeQuickBuilder();
       if (file.name.toLowerCase().endsWith(".json")) {
         const parsed = importBundleSchema.safeParse(JSON.parse(text) as unknown);
         if (!parsed.success) throw new Error("Invalid BranchScript project file.");

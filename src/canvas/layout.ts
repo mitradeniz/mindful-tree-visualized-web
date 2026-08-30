@@ -66,6 +66,10 @@ export function sizeForNode(node: GraphNode, fontScale = 100): NodeSize {
   if (node.boxWidth && node.boxHeight && (node.kind === "neuron" || node.shape === "circle")) {
     const diameter = Math.max(node.boxWidth, node.boxHeight);
     size = { width: diameter, height: diameter };
+  } else if (node.shape === "circle") {
+    const contentLength = node.label.length + (node.text?.length ?? 0) + (node.answer?.length ?? 0) + (node.feature?.length ?? 0);
+    const diameter = Math.min(420, Math.max(150, automatic.width, Math.ceil(Math.sqrt(contentLength) * 16 + 96)));
+    size = { width: diameter, height: diameter };
   } else if (node.boxWidth && node.boxHeight) {
     size = { width: node.boxWidth, height: node.boxHeight };
   }
