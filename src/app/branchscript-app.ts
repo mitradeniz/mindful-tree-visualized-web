@@ -20,6 +20,7 @@ import {
   type CloudDiagramSummary,
 } from "../auth/cloud-api";
 import { GraphCanvas } from "../canvas/graph-canvas";
+import { sizeForNode } from "../canvas/layout";
 import type { DiagramView, GraphDocument, GraphNode, NodeKind, NodeShape } from "../domain/graph-document";
 import { ScriptEditor } from "../editor/script-editor";
 import { getLocale, localeOptions, localizeElement, setLocale, t, type Locale } from "../i18n";
@@ -1179,12 +1180,21 @@ export class BranchScriptApp {
     if (!preset) return;
     const label = t(preset.label);
     const id = this.uniqueNodeId(label);
-    const size = {
-      card: { width: 292, height: 116 },
-      pill: { width: 212, height: 76 },
-      diamond: { width: 230, height: 144 },
-      circle: { width: 126, height: 126 },
-    }[shape];
+    // Use the same native dimensions as the canvas renderer. Data structures
+    // deliberately do not all share a shape, so a fixed card/pill estimate
+    // would make their centre land away from the drop point.
+    const size = sizeForNode({
+      id,
+      kind: preset.kind,
+      label,
+      tags: [],
+      priority: "normal",
+      ...(preset.keepNativeShape ? {} : { shape }),
+      source: {
+        from: { offset: 0, line: 1, column: 1 },
+        to: { offset: 0, line: 1, column: 1 },
+      },
+    }, this.store.get().document?.fontScale ?? 100);
     const position = {
       x: Math.round(center.x - size.width / 2),
       y: Math.round(center.y - size.height / 2),

@@ -476,13 +476,15 @@ test("drags a shape onto the canvas with a touch pointer", async ({ page }) => {
 test("edits an existing box after double click", async ({ page }) => {
   await page.goto("/app/");
   await loadCompactAnswer(page);
+  const accountClose = page.getByRole("button", { name: "Close account panel" });
+  if (await accountClose.isVisible()) await accountClose.click();
   const node = page.locator('#graph-canvas .x6-node[data-cell-id="concise"]');
 
   await node.dblclick();
 
   await expect.poll(() => page.locator("#graph-canvas .x6-graph-svg-viewport").evaluate((element) =>
     (element as SVGGraphicsElement).getCTM()?.a ?? 0,
-  )).toBeCloseTo(1.25, 1);
+  )).toBeCloseTo(1.6, 1);
 
   const builder = page.locator("#quick-builder");
   await expect(builder).toBeVisible();
@@ -495,7 +497,7 @@ test("edits an existing box after double click", async ({ page }) => {
   await builder.getByLabel("Box text").fill("Backend platform introduction");
   await builder.getByLabel("Prepared answer").fill("I owned the platform API and rollout.");
   await builder.getByLabel("Relevant property").fill("Follow-up: scale and trade-offs");
-  await builder.getByRole("button", { name: "Save changes" }).click();
+  await builder.getByRole("button", { name: "Done" }).click();
 
   await expect(builder).toBeHidden();
   await expect(page.locator(".cm-content")).toContainText('response concise "Backend platform introduction"');

@@ -79,6 +79,8 @@ const nodeColors: Record<NodeKind, NodePalette> = {
 const dataKinds = new Set<NodeKind>(["array", "item", "stack", "queue", "list", "record", "pointer"]);
 const touchTapDistance = 10;
 const touchDoubleTapDelay = 320;
+const nodeEditDelay = 220;
+const nodeDoubleClickDelay = 360;
 const virtualNodeThreshold = 200;
 const minBoxWidth = 120;
 const minBoxHeight = 60;
@@ -222,6 +224,9 @@ export class GraphCanvas {
   private inlineTitleNodeId: string | null = null;
   private inlineContentNodeId: string | null = null;
   private inlineContentField: "text" | "answer" | null = null;
+  private nodeEditTimer: number | null = null;
+  private pendingNodeEditId: string | null = null;
+  private lastNodeClick: { nodeId: string; timestamp: number } | null = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -345,6 +350,9 @@ export class GraphCanvas {
     this.container.append(this.inlineContentEditor);
 
     this.container.addEventListener("wheel", this.onCanvasWheel, { passive: false });
+    // X6 installs document-level gesture handlers. Listen one level earlier so
+    // its panning/selection handlers cannot swallow a node double-click.
+    window.addEventListener("dblclick", this.onCanvasDoubleClick, { capture: true });
     this.container.addEventListener("pointerdown", this.onCanvasPointerDown, { capture: true, passive: false });
     this.container.addEventListener("pointermove", this.onCanvasPointerMove, { capture: true, passive: false });
     this.container.addEventListener("pointerup", this.onCanvasPointerUp, { capture: true, passive: false });
@@ -358,29 +366,18 @@ export class GraphCanvas {
     this.graph.on("blank:dblclick", () => {
       if (!this.editingLocked) this.callbacks.onQuickAdd();
     });
-    this.graph.on("node:dblclick", ({ e, node }) => {
-      if (this.editingLocked) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (this.isNodeTitleTarget(e.target)) {
-        this.focusNode(node.id, false);
-        this.openInlineTitleEditor(node);
-        return;
-      }
-      const sourceNode = this.document?.nodes.find((candidate) => candidate.id === node.id);
-      const contentField = sourceNode ? this.nodeContentField(e.target, sourceNode) : null;
-      if (contentField) {
-        this.focusNode(node.id, false);
-        this.openInlineContentEditor(node, contentField);
-        return;
-      }
-      this.focusNode(node.id, true);
-      this.zoomToNode(node);
-    });
     this.graph.on("node:click", ({ e, node }) => {
       if (this.editingLocked || this.isConnectionPortTarget(e.target)) return;
       this.focusNode(node.id, false);
-      this.callbacks.onNodeEdit(node.id);
+      const timestamp = performance.now();
+      const doubleClick = this.lastNodeClick?.nodeId === node.id
+        && timestamp - this.lastNodeClick.timestamp <= nodeDoubleClickDelay;
+      this.lastNodeClick = doubleClick ? null : { nodeId: node.id, timestamp };
+      if (doubleClick) {
+        this.handleNodeDoubleClick(node, e.target, e.altKey);
+        return;
+      }
+      this.scheduleNodeEdit(node.id);
     });
     this.graph.on("edge:connected", ({ edge }) => {
       if (this.editingLocked || edge.getData<{ initial?: boolean }>()?.initial) {
@@ -727,6 +724,58 @@ export class GraphCanvas {
     this.lastTouchTap = null;
   };
 
+  private readonly onCanvasDoubleClick = (event: MouseEvent): void => {
+    if (this.editingLocked) return;
+    const nodeId = this.nodeIdFromTarget(event.target);
+    const node = nodeId ? this.graph.getCellById(nodeId) : null;
+    if (!(node instanceof Node)) return;
+
+    // Consume the browser event before X6 or a browser gesture can apply a
+    // second, relative zoom. This is always an absolute "read this box" focus.
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.handleNodeDoubleClick(node, event.target, event.altKey);
+  };
+
+  private handleNodeDoubleClick(node: Node, target: EventTarget | null, editInline: boolean): void {
+    this.cancelPendingNodeEdit();
+    // Plain double-clicks are always a readable, fixed zoom. Option/Alt
+    // preserves direct editing without competing with that navigation gesture.
+    if (editInline && this.isNodeTitleTarget(target)) {
+      this.focusNode(node.id, false);
+      this.openInlineTitleEditor(node);
+      return;
+    }
+    const sourceNode = this.document?.nodes.find((candidate) => candidate.id === node.id);
+    const contentField = sourceNode ? this.nodeContentField(target, sourceNode) : null;
+    if (editInline && contentField) {
+      this.focusNode(node.id, false);
+      this.openInlineContentEditor(node, contentField);
+      return;
+    }
+    this.focusNode(node.id, false);
+    this.zoomToNode(node);
+    this.callbacks.onNodeEdit(node.id);
+  }
+
+  private scheduleNodeEdit(nodeId: string): void {
+    this.cancelPendingNodeEdit();
+    this.pendingNodeEditId = nodeId;
+    this.nodeEditTimer = window.setTimeout(() => {
+      const pendingNodeId = this.pendingNodeEditId;
+      this.nodeEditTimer = null;
+      this.pendingNodeEditId = null;
+      if (!pendingNodeId || this.editingLocked) return;
+      this.callbacks.onNodeEdit(pendingNodeId);
+    }, nodeEditDelay);
+  }
+
+  private cancelPendingNodeEdit(): void {
+    if (this.nodeEditTimer !== null) window.clearTimeout(this.nodeEditTimer);
+    this.nodeEditTimer = null;
+    this.pendingNodeEditId = null;
+  }
+
   private consumeTouchEvent(event: PointerEvent): void {
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -790,6 +839,7 @@ export class GraphCanvas {
     if (!session || event.pointerId !== session.pointerId) return;
     event.preventDefault();
     this.endResizeSession();
+    this.cancelPendingNodeEdit();
     const fontScale = (this.document?.fontScale ?? 100) / 100;
     this.callbacks.onNodeResize(
       session.nodeId,
@@ -1727,7 +1777,7 @@ export class GraphCanvas {
     // A node double-click is an inspection action: focus the chosen box at a
     // predictable, readable scale instead of fitting its whole neighborhood.
     // The latter can leave a dense algorithm or logic diagram far too small.
-    const targetScale = 1.5;
+    const targetScale = 1.6;
     this.graph.zoom(targetScale, {
       absolute: true,
       center: node.getBBox().getCenter(),
@@ -1893,6 +1943,7 @@ export class GraphCanvas {
 
   dispose(): void {
     this.container.removeEventListener("wheel", this.onCanvasWheel);
+    window.removeEventListener("dblclick", this.onCanvasDoubleClick, true);
     this.container.removeEventListener("pointerdown", this.onCanvasPointerDown, true);
     this.container.removeEventListener("pointermove", this.onCanvasPointerMove, true);
     this.container.removeEventListener("pointerup", this.onCanvasPointerUp, true);
