@@ -59,6 +59,7 @@ const diagramSchema = z.object({
   updated_at: z.string().max(40),
 });
 const diagramWriteSchema = diagramSchema.pick({ title: true, source: true, view: true, workspace: true });
+const diagramUpdateSchema = diagramWriteSchema.extend({ revision: z.number().int().positive() });
 const diagramListSchema = z
   .array(diagramSchema)
   .max(maxCloudDiagrams)
@@ -230,7 +231,16 @@ export async function createDiagram(
 }
 
 export async function updateDiagram(diagram: CloudDiagram): Promise<CloudDiagram> {
-  const input = validateInput(diagramSchema, diagram);
+  // The API deliberately rejects unknown fields. A read response contains id
+  // and timestamps, but an update must contain only writable fields plus the
+  // optimistic-concurrency revision.
+  const input = validateInput(diagramUpdateSchema, {
+    title: diagram.title,
+    source: diagram.source,
+    view: diagram.view,
+    workspace: diagram.workspace,
+    revision: diagram.revision,
+  });
   const body = await request(
     `/api/v1/branchscript/diagrams/${diagram.id}`,
     {

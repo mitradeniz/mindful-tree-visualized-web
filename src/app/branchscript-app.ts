@@ -213,7 +213,7 @@ export class BranchScriptApp {
     this.applySourcePanelLayout();
     this.compile(true);
     this.updateStatus("Ready", "ok");
-    void this.refreshSession();
+    void this.refreshSession(true);
   }
 
   private template(): string {
@@ -1988,7 +1988,7 @@ export class BranchScriptApp {
     }[view];
   }
 
-  private async refreshSession(): Promise<void> {
+  private async refreshSession(promptSignedOut = false): Promise<void> {
     try {
       this.user = await getSession();
     } catch {
@@ -1996,6 +1996,14 @@ export class BranchScriptApp {
     }
     this.renderAccountState();
     if (this.user) await this.refreshCloudLibrary();
+    if (!this.user && promptSignedOut) {
+      window.setTimeout(() => {
+        if (this.user) return;
+        this.setAuthTab("register");
+        this.openAccountPanel();
+        this.setAuthMessage("Create an account to privately save up to 25 diagrams and continue on any device.");
+      }, 320);
+    }
   }
 
   private renderAccountState(): void {
