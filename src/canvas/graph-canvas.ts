@@ -19,6 +19,8 @@ interface CanvasCallbacks {
   onNodeEdit: (nodeId: string) => void;
   onConnect: (sourceId: string, targetId: string) => void;
   onNodeTitleChange: (nodeId: string, label: string) => void;
+  onNodeContentChange: (nodeId: string, field: "text" | "answer", value: string) => void;
+  onNodesDelete: (nodeIds: string[]) => void;
   onNodeResize: (nodeId: string, size: NodeSize, position: Point) => void;
   onContextMenu: (request: { clientX: number; clientY: number; nodeId: string | null }) => void;
 }
@@ -201,6 +203,7 @@ export class GraphCanvas {
   private readonly minimap: MiniMap;
   private readonly resizeFrame: HTMLDivElement;
   private readonly inlineTitleEditor: HTMLInputElement;
+  private readonly inlineContentEditor: HTMLTextAreaElement;
   private document: GraphDocument | null = null;
   private edgeVisibilityFrame: number | null = null;
   private zoomFrame: number | null = null;
@@ -217,6 +220,8 @@ export class GraphCanvas {
   private minimapMouseDragging = false;
   private editingLocked = false;
   private inlineTitleNodeId: string | null = null;
+  private inlineContentNodeId: string | null = null;
+  private inlineContentField: "text" | "answer" | null = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -322,6 +327,23 @@ export class GraphCanvas {
     this.inlineTitleEditor.addEventListener("blur", () => this.commitInlineTitleEdit());
     this.container.append(this.inlineTitleEditor);
 
+    this.inlineContentEditor = window.document.createElement("textarea");
+    this.inlineContentEditor.className = "node-content-inline-editor";
+    this.inlineContentEditor.hidden = true;
+    this.inlineContentEditor.maxLength = 600;
+    this.inlineContentEditor.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        this.cancelInlineContentEdit();
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        event.preventDefault();
+        this.commitInlineContentEdit();
+      }
+    });
+    this.inlineContentEditor.addEventListener("blur", () => this.commitInlineContentEdit());
+    this.container.append(this.inlineContentEditor);
+
     this.container.addEventListener("wheel", this.onCanvasWheel, { passive: false });
     this.container.addEventListener("pointerdown", this.onCanvasPointerDown, { capture: true, passive: false });
     this.container.addEventListener("pointermove", this.onCanvasPointerMove, { capture: true, passive: false });
@@ -343,6 +365,13 @@ export class GraphCanvas {
       if (this.isNodeTitleTarget(e.target)) {
         this.focusNode(node.id, false);
         this.openInlineTitleEditor(node);
+        return;
+      }
+      const sourceNode = this.document?.nodes.find((candidate) => candidate.id === node.id);
+      const contentField = sourceNode ? this.nodeContentField(e.target, sourceNode) : null;
+      if (contentField) {
+        this.focusNode(node.id, false);
+        this.openInlineContentEditor(node, contentField);
         return;
       }
       this.focusNode(node.id, true);
@@ -377,6 +406,7 @@ export class GraphCanvas {
       this.emitPositions();
       this.scheduleViewportOverlays();
     });
+    this.graph.on("node:change:position", () => this.scheduleResizeFrame());
     this.selection.on("selection:changed", () => {
       const nodeIds = this.selection
         .getSelectedCells()
@@ -399,6 +429,16 @@ export class GraphCanvas {
       this.history.redo();
       return false;
     });
+    this.keyboard.bindKey(["backspace", "delete"], () => {
+      if (this.editingLocked || this.inlineTitleNodeId || this.inlineContentNodeId) return true;
+      const selectedNodeIds = this.selection
+        .getSelectedCells()
+        .filter((cell) => cell.isNode())
+        .map((cell) => cell.id);
+      if (selectedNodeIds.length === 0) return true;
+      this.callbacks.onNodesDelete(selectedNodeIds);
+      return false;
+    });
   }
 
   setEditingLocked(locked: boolean): void {
@@ -407,6 +447,7 @@ export class GraphCanvas {
       this.selectedResizeNodeId = null;
       this.resizeFrame.hidden = true;
       this.cancelInlineTitleEdit();
+      this.cancelInlineContentEdit();
     } else {
       this.scheduleResizeFrame();
     }
@@ -418,6 +459,15 @@ export class GraphCanvas {
 
   private isNodeTitleTarget(target: EventTarget | null): boolean {
     return target instanceof Element && target.closest('[data-selector="label"]') !== null;
+  }
+
+  private nodeContentField(target: EventTarget | null, node: GraphNode): "text" | "answer" | null {
+    if (!(target instanceof Element)) return null;
+    const selector = target.closest("[data-selector]")?.getAttribute("data-selector");
+    if (selector === "text") return "text";
+    if (selector === "answer") return "answer";
+    if (selector === "detail") return node.answer ? "answer" : "text";
+    return null;
   }
 
   private openInlineTitleEditor(node: Node): void {
@@ -453,6 +503,45 @@ export class GraphCanvas {
   private cancelInlineTitleEdit(): void {
     this.inlineTitleNodeId = null;
     this.inlineTitleEditor.hidden = true;
+  }
+
+  private openInlineContentEditor(node: Node, field: "text" | "answer"): void {
+    const sourceNode = this.document?.nodes.find((candidate) => candidate.id === node.id);
+    if (!sourceNode) return;
+    const element = this.container.querySelector<HTMLElement>(`.x6-node[data-cell-id="${CSS.escape(node.id)}"]`);
+    if (!element) return;
+    const bounds = element.getBoundingClientRect();
+    const canvasBounds = this.container.getBoundingClientRect();
+    this.inlineContentNodeId = node.id;
+    this.inlineContentField = field;
+    this.inlineContentEditor.maxLength = field === "answer" ? 600 : 420;
+    this.inlineContentEditor.value = sourceNode[field] ?? "";
+    this.inlineContentEditor.style.left = `${bounds.left - canvasBounds.left + 12}px`;
+    this.inlineContentEditor.style.top = `${bounds.top - canvasBounds.top + Math.min(64, Math.max(36, bounds.height * 0.35))}px`;
+    this.inlineContentEditor.style.width = `${Math.max(90, bounds.width - 24)}px`;
+    this.inlineContentEditor.style.height = `${Math.max(54, Math.min(160, bounds.height * 0.48))}px`;
+    this.inlineContentEditor.hidden = false;
+    window.requestAnimationFrame(() => {
+      this.inlineContentEditor.focus();
+      this.inlineContentEditor.select();
+    });
+  }
+
+  private commitInlineContentEdit(): void {
+    const nodeId = this.inlineContentNodeId;
+    const field = this.inlineContentField;
+    if (!nodeId || !field) return;
+    const value = this.inlineContentEditor.value.trim();
+    this.inlineContentNodeId = null;
+    this.inlineContentField = null;
+    this.inlineContentEditor.hidden = true;
+    this.callbacks.onNodeContentChange(nodeId, field, value);
+  }
+
+  private cancelInlineContentEdit(): void {
+    this.inlineContentNodeId = null;
+    this.inlineContentField = null;
+    this.inlineContentEditor.hidden = true;
   }
 
   private readonly onMinimapPointerDown = (event: PointerEvent): void => {
@@ -832,6 +921,7 @@ export class GraphCanvas {
   ): Record<string, Point> {
     if (this.resizeSession) this.endResizeSession();
     this.cancelInlineTitleEdit();
+    this.cancelInlineContentEdit();
     this.selectedResizeNodeId = null;
     this.resizeFrame.hidden = true;
     this.document = document;
@@ -1634,29 +1724,15 @@ export class GraphCanvas {
     const coveredWidth = overlayBounds
       ? Math.max(0, canvasBounds.right - Math.max(canvasBounds.left, overlayBounds.left))
       : 0;
-    const branchingView = this.document?.view === "logic" || this.document?.view === "algorithm";
-
-    if (branchingView) {
-      const neighborhood = [node, ...this.graph.getNeighbors(node).filter((cell): cell is Node => cell instanceof Node)];
-      const bounds = this.graph.getCellsBBox(neighborhood);
-      if (bounds) {
-        this.graph.zoomToRect(bounds, {
-          padding: 42,
-          minScale: 0.01,
-          maxScale: 1.15,
-          viewportArea: {
-            x: 0,
-            y: 0,
-            width: Math.max(220, canvasBounds.width - coveredWidth),
-            height: canvasBounds.height,
-          },
-        });
-      }
-    } else {
-      const targetScale = 1.25;
-      this.graph.scale(targetScale, targetScale);
-      this.graph.centerCell(node);
-    }
+    // A node double-click is an inspection action: focus the chosen box at a
+    // predictable, readable scale instead of fitting its whole neighborhood.
+    // The latter can leave a dense algorithm or logic diagram far too small.
+    const targetScale = 1.2;
+    this.graph.zoom(targetScale, {
+      absolute: true,
+      center: node.getBBox().getCenter(),
+    });
+    this.graph.centerCell(node);
 
     if (coveredWidth > 0) {
       this.graph.translateBy(-coveredWidth / 2, 0);

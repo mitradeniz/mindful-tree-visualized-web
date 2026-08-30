@@ -202,6 +202,8 @@ export class BranchScriptApp {
       onNodeEdit: (nodeId) => this.openNodeEditor(nodeId),
       onConnect: (sourceId, targetId) => this.addDirectConnection(sourceId, targetId),
       onNodeTitleChange: (nodeId, label) => this.renameNode(nodeId, label),
+      onNodeContentChange: (nodeId, field, value) => this.updateNodeContent(nodeId, field, value),
+      onNodesDelete: (nodeIds) => this.deleteNodes(nodeIds),
       onNodeResize: (nodeId, size, position) => this.resizeNode(nodeId, size, position),
       onContextMenu: (request) => this.openCanvasContextMenu(request),
       onPositionsChange: (positions) => {
@@ -695,6 +697,7 @@ export class BranchScriptApp {
       const button = buttons[index];
       if (!button) return;
       button.dataset.shapePreset = preset.shape;
+      button.dataset.shapeKind = preset.kind;
       button.setAttribute("aria-label", t("Drag {name} shape", { name: t(preset.name) }));
       const preview = button.querySelector<HTMLElement>(".shape-palette-preview");
       if (preview) preview.className = `shape-palette-preview ${preset.shape}`;
@@ -703,6 +706,12 @@ export class BranchScriptApp {
       const shapeName = button.querySelector("small");
       if (shapeName) shapeName.textContent = t(preset.shapeName);
     });
+    // A new box should begin with the first valid type for the active visual
+    // language. Existing-node editors keep their own type unchanged.
+    if (!this.editingNodeId) {
+      const kind = this.requireElement("quick-kind") as HTMLSelectElement;
+      kind.value = presets[0]?.kind ?? "process";
+    }
   }
 
   private bindControls(): void {
@@ -1127,6 +1136,8 @@ export class BranchScriptApp {
     this.closeLearnPanel();
     this.closeTemplateLibrary();
     (this.requireElement("quick-node-form") as HTMLFormElement).reset();
+    const firstPreset = this.shapePaletteForCurrentView()[0];
+    (this.requireElement("quick-kind") as HTMLSelectElement).value = firstPreset?.kind ?? "process";
     this.setQuickAdvanced(false);
     this.requireElement("quick-builder-title").textContent = t("Add without scripting");
     this.requireElement("quick-node-submit").textContent = t("Add box");
@@ -1595,6 +1606,76 @@ export class BranchScriptApp {
     const updatedSource = `${source.slice(0, node.source.from.offset)}${lines.join(lineBreak)}${source.slice(node.source.to.offset)}`;
     this.editor?.setValue(updatedSource);
     this.updateStatus(t("Updated {name}", { name: label }), "working");
+  }
+
+  private updateNodeContent(nodeId: string, field: "text" | "answer", value: string): void {
+    const node = this.store.get().document?.nodes.find((candidate) => candidate.id === nodeId);
+    const content = value.trim();
+    const maxLength = field === "answer" ? 600 : 420;
+    if (!node || content.length > maxLength || node[field] === content) return;
+    const source = this.store.get().source;
+    const block = source.slice(node.source.from.offset, node.source.to.offset);
+    const lines = block.split(/\r?\n/);
+    const indent = /^\s*/.exec(lines[0] ?? "")?.[0] ?? "";
+    const attributeLine = `${indent}  @${field} ${JSON.stringify(content)}`;
+    const attributePattern = new RegExp(`^\\s+@${field}\\b`);
+    const existingIndex = lines.findIndex((line, index) => index > 0 && attributePattern.test(line));
+    if (content) {
+      if (existingIndex >= 0) lines[existingIndex] = attributeLine;
+      else lines.splice(1, 0, attributeLine);
+    } else if (existingIndex >= 0) {
+      lines.splice(existingIndex, 1);
+    }
+    const lineBreak = source.includes("\r\n") ? "\r\n" : "\n";
+    const updatedSource = `${source.slice(0, node.source.from.offset)}${lines.join(lineBreak)}${source.slice(node.source.to.offset)}`;
+    this.editor?.setValue(updatedSource);
+    this.updateStatus(t("Updated {name}", { name: node.label }), "working");
+  }
+
+  private deleteNodes(nodeIds: string[]): void {
+    const graphDocument = this.store.get().document;
+    if (!graphDocument || nodeIds.length === 0) return;
+    const deleted = new Set(nodeIds);
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      for (const node of graphDocument.nodes) {
+        if (node.parentId && deleted.has(node.parentId) && !deleted.has(node.id)) {
+          deleted.add(node.id);
+          expanded = true;
+        }
+      }
+    }
+
+    const source = this.store.get().source;
+    let updatedSource = source;
+    const removedNodes = graphDocument.nodes
+      .filter((node) => deleted.has(node.id))
+      .sort((left, right) => right.source.from.offset - left.source.from.offset);
+    for (const node of removedNodes) {
+      const nextLine = updatedSource.indexOf("\n", node.source.to.offset);
+      const removalEnd = nextLine === -1 ? updatedSource.length : nextLine + 1;
+      updatedSource = `${updatedSource.slice(0, node.source.from.offset)}${updatedSource.slice(removalEnd)}`;
+    }
+    const lineBreak = source.includes("\r\n") ? "\r\n" : "\n";
+    updatedSource = updatedSource
+      .split(/\r?\n/)
+      .filter((line) => {
+        const connection = /^\s*connect\s+([A-Za-z][\w-]*)\s*->\s*([A-Za-z][\w-]*)/.exec(line);
+        return !connection || (!deleted.has(connection[1] ?? "") && !deleted.has(connection[2] ?? ""));
+      })
+      .join(lineBreak)
+      .replace(new RegExp(`(?:${lineBreak}){3,}`, "g"), `${lineBreak}${lineBreak}`)
+      .trimEnd()
+      .concat(lineBreak);
+
+    if (this.editingNodeId && deleted.has(this.editingNodeId)) this.closeQuickBuilder(false);
+    const positions = Object.fromEntries(
+      Object.entries(this.store.get().positions).filter(([id]) => !deleted.has(id)),
+    );
+    this.store.update({ positions, selectedNodeId: null });
+    this.editor?.setValue(updatedSource);
+    this.updateStatus(t("Removed {count} boxes", { count: removedNodes.length }), "working");
   }
 
   private appendScript(lines: string[]): void {

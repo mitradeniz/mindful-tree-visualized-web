@@ -832,6 +832,26 @@ a.button {
   display: none;
 }
 
+.node-content-inline-editor {
+  position: absolute;
+  z-index: 30;
+  box-sizing: border-box;
+  resize: both;
+  min-height: 54px;
+  padding: 8px 9px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  outline: 0;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 20px var(--shadow);
+  color: var(--text);
+  font: 500 12px/1.42 Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.node-content-inline-editor[hidden] {
+  display: none;
+}
+
 .node-resize-frame {
   position: absolute;
   z-index: 24;

@@ -39,17 +39,17 @@ describe("large canvas navigation", () => {
     expect(canvasSource).toContain("touchDoubleTapDelay");
   });
 
-  it("focuses and edits a node on double-click", () => {
+  it("opens editing on one click and gives a node readable focus on double-click", () => {
     expect(canvasSource).toContain("preventDefaultDblClick: true");
     expect(canvasSource).toContain("e.preventDefault();");
     expect(canvasSource).toContain("e.stopPropagation();");
     expect(canvasSource).toContain("this.callbacks.onNodeEdit(node.id);");
-    expect(canvasSource).toContain("window.setTimeout(() => this.zoomToNode(node), 80);");
-    expect(canvasSource).toContain("const targetScale = 1.25;");
+    expect(canvasSource).toContain("this.isNodeTitleTarget(e.target)");
+    expect(canvasSource).toContain("this.openInlineTitleEditor(node);");
+    expect(canvasSource).toContain("const targetScale = 1.2;");
+    expect(canvasSource).toContain("absolute: true");
     expect(canvasSource).toContain("this.graph.centerCell(node);");
-    expect(canvasSource).toContain('this.document?.view === "logic"');
-    expect(canvasSource).toContain("this.graph.getNeighbors(node)");
-    expect(canvasSource).toContain("this.graph.zoomToRect(bounds");
+    expect(canvasSource).toContain("node.getBBox().getCenter()");
   });
 
   it("resizes selected nodes from edge and corner handles", () => {
