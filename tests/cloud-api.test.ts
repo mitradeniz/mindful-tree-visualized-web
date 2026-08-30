@@ -19,7 +19,7 @@ describe("cloud API response validation", () => {
     await expect(getSession()).resolves.toMatchObject({ id: 7, email: "person@example.com" });
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/branchscript/session",
-      expect.objectContaining({ cache: "no-store", credentials: "include", mode: "same-origin", redirect: "error" }),
+      expect.objectContaining({ cache: "no-store", credentials: "include", mode: "cors", redirect: "error" }),
     );
   });
 

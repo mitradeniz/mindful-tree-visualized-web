@@ -115,7 +115,11 @@ async function request<T>(path: string, init: RequestInit = {}, schema?: z.ZodTy
       ...init,
       cache: "no-store",
       credentials: "include",
-      mode: "same-origin",
+      // Keep CORS mode even for relative URLs. Firefox serializes the Origin as
+      // `null` for non-CORS POST requests when Referrer-Policy is `no-referrer`,
+      // which would make the API's strict Origin check correctly reject login
+      // and registration requests.
+      mode: "cors",
       redirect: "error",
       signal: controller.signal,
       headers: {
