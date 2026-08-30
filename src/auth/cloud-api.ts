@@ -21,6 +21,15 @@ export interface CloudDiagram {
   updated_at: string;
 }
 
+export interface CloudDiagramSummary {
+  id: number;
+  title: string;
+  view: string;
+  revision: number;
+  created_at: string;
+  updated_at: string;
+}
+
 interface ApiErrorBody {
   error?: string | undefined;
 }
@@ -60,10 +69,10 @@ const diagramSchema = z.object({
 });
 const diagramWriteSchema = diagramSchema.pick({ title: true, source: true, view: true, workspace: true });
 const diagramUpdateSchema = diagramWriteSchema.extend({ revision: z.number().int().positive() });
+const diagramSummarySchema = diagramSchema.pick({ id: true, title: true, view: true, revision: true, created_at: true, updated_at: true });
 const diagramListSchema = z
-  .array(diagramSchema)
-  .max(maxCloudDiagrams)
-  .refine((diagrams) => diagrams.reduce((total, diagram) => total + diagram.source.length, 0) <= 10_000_000);
+  .array(diagramSummarySchema)
+  .max(maxCloudDiagrams);
 const apiErrorSchema = z.object({ error: z.string().max(80).optional() });
 
 export class CloudApiError extends Error {
@@ -204,7 +213,7 @@ export async function logout(): Promise<void> {
   await request("/api/v1/branchscript/session", { method: "DELETE" });
 }
 
-export async function listDiagrams(): Promise<CloudDiagram[]> {
+export async function listDiagrams(): Promise<CloudDiagramSummary[]> {
   const body = await request("/api/v1/branchscript/diagrams", {}, z.object({ diagrams: diagramListSchema }));
   return body.diagrams;
 }

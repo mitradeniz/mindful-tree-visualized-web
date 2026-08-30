@@ -17,6 +17,7 @@ import {
   verifyEmail,
   type BranchScriptUser,
   type CloudDiagram,
+  type CloudDiagramSummary,
 } from "../auth/cloud-api";
 import { GraphCanvas } from "../canvas/graph-canvas";
 import type { DiagramView, GraphDocument, GraphNode, NodeKind, NodeShape } from "../domain/graph-document";
@@ -150,7 +151,7 @@ export class BranchScriptApp {
   private runnerOpen = false;
   private runPath: string[] = [];
   private user: BranchScriptUser | null = null;
-  private cloudDiagrams: CloudDiagram[] = [];
+  private cloudDiagrams: CloudDiagramSummary[] = [];
   private currentCloudDiagram: CloudDiagram | null = null;
   private contextNodeId: string | null = null;
   private confirmationResolver: ((accepted: boolean) => void) | null = null;
@@ -2150,7 +2151,7 @@ export class BranchScriptApp {
     }
   }
 
-  private async openCloudDiagram(summary: CloudDiagram): Promise<void> {
+  private async openCloudDiagram(summary: CloudDiagramSummary): Promise<void> {
     const accepted = await this.requestConfirmation({
       title: t("Replace current diagram?"),
       message: t("Open “{name}” and replace the current canvas?", { name: summary.title }),
@@ -2189,13 +2190,27 @@ export class BranchScriptApp {
       this.updateStatus("Sign in or create an account to save this diagram.", "error");
       return;
     }
+    // The editor's normal compile is debounced. Saving must always use the
+    // exact source and rendered workspace visible at the moment of the click.
+    this.compileImmediately(false);
     const state = this.store.get();
     if (!state.document) {
       this.updateStatus("Fix script issues before cloud save", "error");
       return;
     }
+    const currentTitle = this.currentCloudDiagram?.title ?? state.document.title;
+    const requestedTitle = window.prompt("Name this diagram", currentTitle);
+    if (requestedTitle === null) {
+      this.updateStatus("Cloud save cancelled", "ok");
+      return;
+    }
+    const title = requestedTitle.trim();
+    if (!title || title.length > 160) {
+      this.updateStatus("Enter a diagram name between 1 and 160 characters", "error");
+      return;
+    }
     const payload = {
-      title: state.document.title,
+      title,
       source: state.source,
       view: state.document.view,
       workspace: { direction: state.direction, positions: state.positions, theme: state.theme },
@@ -2212,7 +2227,7 @@ export class BranchScriptApp {
     }
   }
 
-  private async removeCloudDiagram(diagram: CloudDiagram): Promise<void> {
+  private async removeCloudDiagram(diagram: CloudDiagramSummary): Promise<void> {
     const accepted = await this.requestConfirmation({
       title: t("Delete cloud diagram?"),
       message: t("Delete “{name}” from the cloud?", { name: diagram.title }),

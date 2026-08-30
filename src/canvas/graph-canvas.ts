@@ -340,8 +340,13 @@ export class GraphCanvas {
       if (this.editingLocked) return;
       e.preventDefault();
       e.stopPropagation();
-      this.focusNode(node.id, false);
-      this.openInlineTitleEditor(node);
+      if (this.isNodeTitleTarget(e.target)) {
+        this.focusNode(node.id, false);
+        this.openInlineTitleEditor(node);
+        return;
+      }
+      this.focusNode(node.id, true);
+      this.zoomToNode(node);
     });
     this.graph.on("node:click", ({ e, node }) => {
       if (this.editingLocked || this.isConnectionPortTarget(e.target)) return;
@@ -409,6 +414,10 @@ export class GraphCanvas {
 
   private isConnectionPortTarget(target: EventTarget | null): boolean {
     return target instanceof Element && target.closest(".branchscript-connection-port") !== null;
+  }
+
+  private isNodeTitleTarget(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest('[data-selector="label"]') !== null;
   }
 
   private openInlineTitleEditor(node: Node): void {
