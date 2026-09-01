@@ -21,7 +21,14 @@ import {
 } from "../auth/cloud-api";
 import { GraphCanvas } from "../canvas/graph-canvas";
 import { sizeForNode } from "../canvas/layout";
-import type { DiagramView, GraphDocument, GraphNode, NodeKind, NodeShape } from "../domain/graph-document";
+import {
+  nodeContentLimits,
+  type DiagramView,
+  type GraphDocument,
+  type GraphNode,
+  type NodeKind,
+  type NodeShape,
+} from "../domain/graph-document";
 import { ScriptEditor } from "../editor/script-editor";
 import { getLocale, localeOptions, localizeElement, setLocale, t, type Locale } from "../i18n";
 import {
@@ -473,7 +480,7 @@ export class BranchScriptApp {
                 </label>
                 <label class="field field-wide">
                   <span>Supporting text</span>
-                  <textarea id="quick-text" name="text" maxlength="420" rows="3" placeholder="Context, reminder, or explanation shown inside the box"></textarea>
+                  <textarea id="quick-text" name="text" maxlength="${nodeContentLimits.text}" rows="3" placeholder="Context, reminder, or explanation shown inside the box"></textarea>
                 </label>
                 <fieldset class="quick-typography field-wide">
                   <legend>Text appearance</legend>
@@ -514,11 +521,11 @@ export class BranchScriptApp {
                 <div id="quick-advanced-settings" class="quick-advanced field-wide" hidden>
                   <label class="field field-wide">
                     <span>Prepared answer</span>
-                    <textarea id="quick-answer" name="answer" maxlength="600" rows="4" placeholder="The concise answer you want to recall during practice"></textarea>
+                    <textarea id="quick-answer" name="answer" maxlength="${nodeContentLimits.answer}" rows="4" placeholder="The answer you want to recall during practice"></textarea>
                   </label>
                   <label class="field field-wide">
                     <span>Relevant property</span>
-                    <input id="quick-feature" name="feature" maxlength="120" placeholder="Follow-up cue, rule, complexity, signal, or operation" autocomplete="off" />
+                    <input id="quick-feature" name="feature" maxlength="${nodeContentLimits.feature}" placeholder="Follow-up cue, rule, complexity, signal, or operation" autocomplete="off" />
                   </label>
                   <label class="field" id="quick-parent-field">
                     <span>Connect after</span>
@@ -1371,12 +1378,16 @@ export class BranchScriptApp {
   private setMobileView(view: "source" | "canvas"): void {
     const workspace = this.root.querySelector<HTMLElement>(".workspace");
     if (!workspace) return;
+    const previousView = workspace.dataset.mobileView;
     workspace.dataset.mobileView = view;
     for (const button of workspace.querySelectorAll<HTMLButtonElement>("[data-mobile-view-button]")) {
       const active = button.dataset.mobileViewButton === view;
       button.setAttribute("aria-pressed", String(active));
     }
-    if (view === "canvas") window.setTimeout(() => this.canvas?.fit(), 80);
+    const changedToVisibleMobileCanvas = view === "canvas"
+      && previousView !== "canvas"
+      && window.matchMedia("(max-width: 900px)").matches;
+    if (changedToVisibleMobileCanvas) window.setTimeout(() => this.canvas?.fit(), 80);
   }
 
   private restoreSourcePanelLayout(): void {
@@ -1689,7 +1700,7 @@ export class BranchScriptApp {
   private updateNodeContent(nodeId: string, field: "text" | "answer", value: string): void {
     const node = this.store.get().document?.nodes.find((candidate) => candidate.id === nodeId);
     const content = value.trim();
-    const maxLength = field === "answer" ? 600 : 420;
+    const maxLength = nodeContentLimits[field];
     if (!node || content.length > maxLength || node[field] === content) return;
     const source = this.store.get().source;
     const block = source.slice(node.source.from.offset, node.source.to.offset);

@@ -4,12 +4,13 @@ import { Keyboard } from "@antv/x6-plugin-keyboard";
 import { MiniMap } from "@antv/x6-plugin-minimap";
 import { Selection } from "@antv/x6-plugin-selection";
 import type { LayoutDirection, Point } from "../app/app-store";
-import type { DiagramView, GraphDocument, GraphEdge, GraphNode, NodeKind } from "../domain/graph-document";
+import { nodeContentLimits, type DiagramView, type GraphDocument, type GraphEdge, type GraphNode, type NodeKind } from "../domain/graph-document";
 import { t } from "../i18n";
 import { dataFields, dataItems } from "./data-structure";
 import { calculateLayout, sizeForNode, type NodeSize } from "./layout";
-import { intersectsWithOverscan, maxCanvasScale, minCanvasScale, nextWheelZoomScale } from "./navigation";
-import { matchingNodeIds, nodeMatchesSearch } from "./search";
+import { intersectsWithOverscan, maxCanvasScale, minCanvasScale, nextWheelZoomScale, zoomDetailLevel } from "./navigation";
+import { matchingNodeIds } from "./search";
+import { shouldUseWebGLEdges, WebGLEdgeLayer } from "./webgl-edge-layer";
 
 interface CanvasCallbacks {
   onSelect: (nodeIds: string[]) => void;
@@ -81,7 +82,7 @@ const touchTapDistance = 10;
 const touchDoubleTapDelay = 320;
 const nodeEditDelay = 220;
 const nodeDoubleClickDelay = 360;
-const virtualNodeThreshold = 200;
+const virtualNodeThreshold = 120;
 const minBoxWidth = 120;
 const minBoxHeight = 60;
 const maxBoxWidth = 1_200;
@@ -203,6 +204,7 @@ export class GraphCanvas {
   private readonly selection: Selection;
   private readonly keyboard: Keyboard;
   private readonly minimap: MiniMap;
+  private readonly webglEdges: WebGLEdgeLayer;
   private readonly resizeFrame: HTMLDivElement;
   private readonly inlineTitleEditor: HTMLInputElement;
   private readonly inlineContentEditor: HTMLTextAreaElement;
@@ -227,6 +229,8 @@ export class GraphCanvas {
   private nodeEditTimer: number | null = null;
   private pendingNodeEditId: string | null = null;
   private lastNodeClick: { nodeId: string; timestamp: number } | null = null;
+  private webglEdgesActive = false;
+  private virtualRenderEnabled = false;
 
   constructor(
     private readonly container: HTMLElement,
@@ -235,10 +239,10 @@ export class GraphCanvas {
   ) {
     this.graph = new Graph({
       container: this.container,
+      async: true,
       autoResize: true,
       background: { color: "transparent" },
       preventDefaultDblClick: true,
-      virtual: true,
       grid: {
         visible: true,
         type: "dot",
@@ -270,6 +274,26 @@ export class GraphCanvas {
       },
     });
 
+    this.webglEdges = new WebGLEdgeLayer(this.container, {
+      nodeBounds: (nodeId) => {
+        const cell = this.graph.getCellById(nodeId);
+        if (!(cell instanceof Node)) return null;
+        const bounds = cell.getBBox();
+        return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+      },
+      matrix: () => {
+        const matrix = this.graph.matrix();
+        return {
+          a: matrix.a,
+          b: matrix.b,
+          c: matrix.c,
+          d: matrix.d,
+          e: matrix.e,
+          f: matrix.f,
+        };
+      },
+    });
+
     this.history = new History({ enabled: true, stackSize: 80 });
     this.selection = new Selection({
       enabled: true,
@@ -291,6 +315,7 @@ export class GraphCanvas {
       height: 108,
       padding: 12,
       scalable: false,
+      graphOptions: { async: true },
     });
     this.graph.use(this.minimap);
     this.minimapContainer.title = "Click or drag to move around the canvas";
@@ -335,7 +360,7 @@ export class GraphCanvas {
     this.inlineContentEditor = window.document.createElement("textarea");
     this.inlineContentEditor.className = "node-content-inline-editor";
     this.inlineContentEditor.hidden = true;
-    this.inlineContentEditor.maxLength = 600;
+    this.inlineContentEditor.maxLength = nodeContentLimits.answer;
     this.inlineContentEditor.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -357,8 +382,8 @@ export class GraphCanvas {
     this.container.addEventListener("pointermove", this.onCanvasPointerMove, { capture: true, passive: false });
     this.container.addEventListener("pointerup", this.onCanvasPointerUp, { capture: true, passive: false });
     this.container.addEventListener("pointercancel", this.onCanvasPointerCancel, { capture: true, passive: false });
-    window.addEventListener("resize", this.scheduleResizeFrame);
-    this.graph.on("scale", this.scheduleViewportOverlays);
+    window.addEventListener("resize", this.scheduleViewportOverlays);
+    this.graph.on("scale", this.onCanvasScale);
     this.graph.on("translate", this.scheduleViewportOverlays);
     this.graph.on("blank:click", ({ e }) => {
       this.callbacks.onCanvasTap(this.clientPointToGraph(e.clientX, e.clientY));
@@ -403,7 +428,7 @@ export class GraphCanvas {
       this.emitPositions();
       this.scheduleViewportOverlays();
     });
-    this.graph.on("node:change:position", () => this.scheduleResizeFrame());
+    this.graph.on("node:change:position", this.scheduleViewportOverlays);
     this.selection.on("selection:changed", () => {
       const nodeIds = this.selection
         .getSelectedCells()
@@ -511,7 +536,7 @@ export class GraphCanvas {
     const canvasBounds = this.container.getBoundingClientRect();
     this.inlineContentNodeId = node.id;
     this.inlineContentField = field;
-    this.inlineContentEditor.maxLength = field === "answer" ? 600 : 420;
+    this.inlineContentEditor.maxLength = nodeContentLimits[field];
     this.inlineContentEditor.value = sourceNode[field] ?? "";
     this.inlineContentEditor.style.left = `${bounds.left - canvasBounds.left + 12}px`;
     this.inlineContentEditor.style.top = `${bounds.top - canvasBounds.top + Math.min(64, Math.max(36, bounds.height * 0.35))}px`;
@@ -937,7 +962,28 @@ export class GraphCanvas {
   private readonly scheduleViewportOverlays = (): void => {
     this.scheduleEdgeVisibility();
     this.scheduleResizeFrame();
+    this.webglEdges.scheduleDraw();
   };
+
+  private readonly onCanvasScale = (): void => {
+    this.updateZoomDetailLevel();
+    this.updateVirtualRenderMode();
+    this.scheduleViewportOverlays();
+  };
+
+  private updateZoomDetailLevel(): void {
+    this.container.dataset.zoomDetail = zoomDetailLevel(this.graph.zoom());
+  }
+
+  private updateVirtualRenderMode(): void {
+    if (!this.document) return;
+    const shouldEnable = this.document.nodes.length > virtualNodeThreshold
+      && zoomDetailLevel(this.graph.zoom()) !== "overview";
+    if (shouldEnable === this.virtualRenderEnabled) return;
+    this.virtualRenderEnabled = shouldEnable;
+    if (shouldEnable) this.graph.enableVirtualRender();
+    else this.graph.disableVirtualRender();
+  }
 
   private queueTouchTransform(dx: number, dy: number, scale: number | null = null, center: Point | null = null): void {
     const pending = this.pendingTouchTransform ?? { dx: 0, dy: 0, scale: null, center: null };
@@ -988,7 +1034,9 @@ export class GraphCanvas {
 
     this.history.disable();
     this.graph.clearCells();
-    if (document.nodes.length > virtualNodeThreshold) this.graph.enableVirtualRender();
+    this.virtualRenderEnabled = document.nodes.length > virtualNodeThreshold
+      && zoomDetailLevel(this.graph.zoom()) !== "overview";
+    if (this.virtualRenderEnabled) this.graph.enableVirtualRender();
     else this.graph.disableVirtualRender();
 
     for (const node of document.nodes) {
@@ -997,56 +1045,64 @@ export class GraphCanvas {
     }
 
     const nodeIds = new Set(document.nodes.map((node) => node.id));
+    this.webglEdgesActive = this.webglEdges.available
+      && shouldUseWebGLEdges(document.nodes.length, document.edges.length);
+    this.container.dataset.edgeRenderer = this.webglEdgesActive ? "webgl" : "svg";
 
-    for (const edge of document.edges) {
-      if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) continue;
-      const smooth = document.view === "tree" || document.view === "neural";
-      this.graph.addEdge({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        data: { initial: true },
-        zIndex: 0,
-        ...(smooth ? {} : { router: { name: "orth", args: { padding: 24 } } }),
-        connector: smooth
-          ? { name: "smooth" }
-          : { name: "rounded", args: { radius: 12 } },
-        ...(edge.label
-          ? {
-              labels: [
-                {
-                  position: 0.55,
-                  attrs: {
-                    body: {
-                      fill: "#162019",
-                      stroke: edgeColor(edge, document.view),
-                      strokeWidth: 1,
-                      rx: 8,
-                      ry: 8,
-                    },
-                    label: {
-                      text: edge.label,
-                      fill: "#eaf3ec",
-                      fontSize: 10,
-                      fontWeight: 700,
+    if (!this.webglEdgesActive) {
+      for (const edge of document.edges) {
+        if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) continue;
+        const smooth = document.view === "tree" || document.view === "neural";
+        this.graph.addEdge({
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          data: { initial: true },
+          zIndex: 0,
+          ...(smooth ? {} : { router: { name: "orth", args: { padding: 24 } } }),
+          connector: smooth
+            ? { name: "smooth" }
+            : { name: "rounded", args: { radius: 12 } },
+          ...(edge.label
+            ? {
+                labels: [
+                  {
+                    position: 0.55,
+                    attrs: {
+                      body: {
+                        fill: "#162019",
+                        stroke: edgeColor(edge, document.view),
+                        strokeWidth: 1,
+                        rx: 8,
+                        ry: 8,
+                      },
+                      label: {
+                        text: edge.label,
+                        fill: "#eaf3ec",
+                        fontSize: 10,
+                        fontWeight: 700,
+                      },
                     },
                   },
-                },
-              ],
-            }
-          : {}),
-        attrs: {
-          line: {
-            class: "branchscript-edge-line",
-            stroke: edgeColor(edge, document.view),
-            strokeWidth: document.view === "neural" ? 1.4 : edge.kind === "reference" ? 1.5 : 2,
-            opacity: document.view === "neural" ? 0.82 : 1,
-            strokeDasharray: edge.kind === "reference" ? "6 5" : "",
-            targetMarker: { name: "block", width: 8, height: 7 },
+                ],
+              }
+            : {}),
+          attrs: {
+            line: {
+              class: "branchscript-edge-line",
+              stroke: edgeColor(edge, document.view),
+              strokeWidth: document.view === "neural" ? 1.4 : edge.kind === "reference" ? 1.5 : 2,
+              opacity: document.view === "neural" ? 0.82 : 1,
+              strokeDasharray: edge.kind === "reference" ? "6 5" : "",
+              targetMarker: { name: "block", width: 8, height: 7 },
+            },
           },
-        },
-      });
+        });
+      }
     }
+
+    this.webglEdges.setScene(document, this.webglEdgesActive);
+    this.updateZoomDetailLevel();
 
     this.scheduleViewportOverlays();
 
@@ -1063,6 +1119,7 @@ export class GraphCanvas {
       const attrs = this.nodeMetadata(sourceNode, cell.position()).attrs;
       if (attrs) cell.setAttrs(attrs);
     }
+    this.webglEdges.refreshTheme();
   }
 
   private nodeMetadata(node: GraphNode, position: Point): Node.Metadata {
@@ -1804,10 +1861,11 @@ export class GraphCanvas {
   applySearch(query: string, activeId: string | null = null): void {
     if (!this.document) return;
     const searching = query.trim().length > 0;
+    const matchingIds = searching ? new Set(matchingNodeIds(this.document, query)) : null;
     for (const node of this.document.nodes) {
       const cell = this.graph.getCellById(node.id);
       if (!(cell instanceof Node)) continue;
-      const matches = !searching || nodeMatchesSearch(node, query);
+      const matches = !matchingIds || matchingIds.has(node.id);
       const active = node.id === activeId;
       cell.attr("body/opacity", 1);
       cell.attr("body/strokeOpacity", matches ? 1 : 0.28);
@@ -1849,6 +1907,7 @@ export class GraphCanvas {
       cell.attr("line/strokeWidth", active ? 3.4 : this.document.view === "neural" ? 1.4 : 2);
       cell.attr("line/class", active ? "branchscript-edge-line live-active-edge" : "branchscript-edge-line");
     }
+    this.webglEdges.setHighlight(path);
   }
 
   clearHighlight(): void {
@@ -1865,6 +1924,10 @@ export class GraphCanvas {
 
   private readonly updateEdgeVisibility = (): void => {
     if (!this.document) return;
+    if (this.webglEdgesActive) {
+      this.webglEdges.scheduleDraw();
+      return;
+    }
 
     const viewport = this.graph.getGraphArea();
     const shouldCull = this.document.nodes.length > virtualNodeThreshold;
@@ -1956,12 +2019,13 @@ export class GraphCanvas {
     this.minimapMouseDragging = false;
     window.removeEventListener("mousemove", this.onMinimapMouseMove, true);
     window.removeEventListener("mouseup", this.onMinimapMouseUp, true);
-    window.removeEventListener("resize", this.scheduleResizeFrame);
+    window.removeEventListener("resize", this.scheduleViewportOverlays);
     this.endResizeSession();
     if (this.edgeVisibilityFrame !== null) window.cancelAnimationFrame(this.edgeVisibilityFrame);
     if (this.resizeFrameId !== null) window.cancelAnimationFrame(this.resizeFrameId);
     if (this.zoomFrame !== null) window.cancelAnimationFrame(this.zoomFrame);
     if (this.touchFrame !== null) window.cancelAnimationFrame(this.touchFrame);
+    this.webglEdges.dispose();
     this.graph.dispose();
   }
 

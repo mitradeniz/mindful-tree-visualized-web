@@ -39,6 +39,11 @@ export const fontFamilies = ["sans", "serif", "mono"] as const;
 export const fontWeights = ["regular", "medium", "bold"] as const;
 export const textAlignments = ["left", "center", "right"] as const;
 export const nodeWidths = ["compact", "normal", "wide"] as const;
+export const nodeContentLimits = {
+  text: 1_200,
+  answer: 4_000,
+  feature: 240,
+} as const;
 
 export const sourcePointSchema = z.object({
   offset: z.number().int().nonnegative(),
@@ -57,9 +62,9 @@ export const graphNodeSchema = z.object({
   id: identifierSchema,
   kind: z.enum(nodeKinds),
   label: z.string().min(1).max(160),
-  text: z.string().min(1).max(420).optional(),
-  answer: z.string().min(1).max(600).optional(),
-  feature: z.string().min(1).max(120).optional(),
+  text: z.string().min(1).max(nodeContentLimits.text).optional(),
+  answer: z.string().min(1).max(nodeContentLimits.answer).optional(),
+  feature: z.string().min(1).max(nodeContentLimits.feature).optional(),
   category: z.string().min(1).max(60).optional(),
   items: z.array(z.string().min(1).max(80)).max(8).optional(),
   fields: z.array(z.string().min(1).max(80)).max(8).optional(),

@@ -1,5 +1,12 @@
 export const minCanvasScale = 0.01;
 export const maxCanvasScale = 16;
+export type ZoomDetailLevel = "overview" | "compact" | "detail";
+
+export function zoomDetailLevel(scale: number): ZoomDetailLevel {
+  if (scale < 0.16) return "overview";
+  if (scale < 0.48) return "compact";
+  return "detail";
+}
 
 export function adaptiveZoomFactor(scale: number): number {
   if (scale < 0.05) return 1.5;

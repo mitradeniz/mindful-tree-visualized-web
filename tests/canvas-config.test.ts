@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const canvasSource = readFileSync("src/canvas/graph-canvas.ts", "utf8");
+const appSource = readFileSync("src/app/branchscript-app.ts", "utf8");
 
 describe("large canvas navigation", () => {
   it("keeps a useful zoom range for large diagrams", () => {
@@ -53,6 +54,13 @@ describe("large canvas navigation", () => {
     expect(canvasSource).toContain("node.getBBox().getCenter()");
   });
 
+  it("does not fit the whole diagram when a desktop node editor opens", () => {
+    expect(appSource).toContain('const previousView = workspace.dataset.mobileView;');
+    expect(appSource).toContain('previousView !== "canvas"');
+    expect(appSource).toContain('window.matchMedia("(max-width: 900px)").matches');
+    expect(appSource).toContain("if (changedToVisibleMobileCanvas) window.setTimeout(() => this.canvas?.fit(), 80);");
+  });
+
   it("resizes selected nodes from edge and corner handles", () => {
     expect(canvasSource).toContain('const resizeDirections: ResizeDirection[] = ["n", "ne", "e", "se", "s", "sw", "w", "nw"]');
     expect(canvasSource).toContain("onResizeHandlePointerDown");
@@ -79,10 +87,23 @@ describe("large canvas navigation", () => {
   });
 
   it("uses virtual rendering for large diagrams", () => {
-    expect(canvasSource).toContain("virtual: true");
-    expect(canvasSource).toContain("const virtualNodeThreshold = 200");
+    expect(canvasSource).toContain("const virtualNodeThreshold = 120");
     expect(canvasSource).toContain("document.nodes.length > virtualNodeThreshold");
+    expect(canvasSource).toContain('zoomDetailLevel(this.graph.zoom()) !== "overview"');
+    expect(canvasSource).toContain("this.updateVirtualRenderMode()");
+    expect(canvasSource).toContain("this.graph.enableVirtualRender()");
     expect(canvasSource).toContain("this.graph.disableVirtualRender()");
+    expect(canvasSource).toContain("graphOptions: { async: true }");
+    expect(canvasSource).not.toContain("graphOptions: { async: true, virtual: true }");
+  });
+
+  it("uses a synchronized WebGL edge layer for large diagrams", () => {
+    expect(canvasSource).toContain("shouldUseWebGLEdges(document.nodes.length, document.edges.length)");
+    expect(canvasSource).toContain('this.container.dataset.edgeRenderer = this.webglEdgesActive ? "webgl" : "svg"');
+    expect(canvasSource).toContain("this.webglEdges.setScene(document, this.webglEdgesActive)");
+    expect(canvasSource).toContain("this.webglEdges.scheduleDraw()");
+    expect(canvasSource).toContain("this.webglEdges.setHighlight(path)");
+    expect(canvasSource).toContain("this.container.dataset.zoomDetail = zoomDetailLevel(this.graph.zoom())");
   });
 
   it("refreshes light node palettes without exposing edges below them", () => {

@@ -1,6 +1,7 @@
 import source from "../examples/software-interview.mtree?raw";
 import { describe, expect, it } from "vitest";
 import { blankProjectSource, playgroundPresets, presetsForView } from "../src/playground/presets";
+import { nodeContentLimits } from "../src/domain/graph-document";
 import { compileMindTree } from "../src/scripting/compiler";
 
 describe("compileMindTree", () => {
@@ -250,11 +251,20 @@ connect scores -> user`);
   it("limits untrusted source and rich content sizes", () => {
     const oversizedSource = compileMindTree("x".repeat(1_000_001));
     const oversizedAnswer = compileMindTree(`question answer "Answer"
-  @answer "${"a".repeat(601)}"`);
+  @answer "${"a".repeat(nodeContentLimits.answer + 1)}"`);
 
     expect(oversizedSource.document).toBeUndefined();
     expect(oversizedSource.diagnostics[0]?.message).toContain("1,000,000");
     expect(oversizedAnswer.document).toBeUndefined();
-    expect(oversizedAnswer.diagnostics[0]?.message).toContain("too long");
+    expect(oversizedAnswer.diagnostics[0]?.message).toContain("maximum 4,000 characters");
+  });
+
+  it("keeps long-form interview answers renderable", () => {
+    const answer = "a".repeat(nodeContentLimits.answer);
+    const result = compileMindTree(`question answer "Answer"
+  @answer "${answer}"`);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.document?.nodes[0]?.answer).toHaveLength(nodeContentLimits.answer);
   });
 });

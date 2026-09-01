@@ -30,10 +30,19 @@ record profile "Candidate profile"
     expect(matchingNodeIds(document, "")).toEqual([]);
   });
 
-  it("matches separated words, partial word sets, and small typing errors", () => {
+  it("requires every query word to match the same node", () => {
     expect(matchingNodeIds(document, "mvvm experience")[0]).toBe("mvvm");
     expect(matchingNodeIds(document, "architecture experience")[0]).toBe("mvvm");
+    expect(matchingNodeIds(document, "backend experience")).toEqual([]);
+    expect(matchingNodeIds(document, "backend kotlin")).toEqual([]);
+    expect(matchingNodeIds(document, "reliable introduction")).toEqual(["concise"]);
+  });
+
+  it("accepts partial terms, transpositions, and small typing errors", () => {
     expect(matchingNodeIds(document, "experiance")).toContain("mvvm");
+    expect(matchingNodeIds(document, "mvvm experince")).toEqual(["mvvm"]);
+    expect(matchingNodeIds(document, "relable introducton")).toEqual(["concise"]);
+    expect(matchingNodeIds(document, "adnroid kotlin")).toEqual(["profile"]);
     expect(matchingNodeIds(document, "kotlin")).toEqual(["profile"]);
   });
 

@@ -17,6 +17,7 @@ import type {
 import {
   diagramViews,
   graphDocumentSchema,
+  nodeContentLimits,
   nodeColors,
   nodeKinds,
   nodeShapes,
@@ -72,7 +73,6 @@ const maxNodes = 2_000;
 const maxEdges = 5_000;
 const maxLabelLength = 160;
 const maxConnectionLabelLength = 80;
-const maxContentLengths = { text: 420, answer: 600, feature: 120 } as const;
 const maxDataValueLength = 80;
 const kindAliases: Record<string, NodeKind> = {
   step: "process",
@@ -491,9 +491,15 @@ export function compileMindTree(source: string): CompileResult {
               offset + rawLine.length,
             ),
           );
-        } else if (decoded.length > maxContentLengths[name]) {
+        } else if (decoded.length > nodeContentLimits[name]) {
           diagnostics.push(
-            diagnostic(`${name} is too long.`, lineNumber, contentStart + 1, offset + contentStart, offset + rawLine.length),
+            diagnostic(
+              `${name} is too long (maximum ${nodeContentLimits[name].toLocaleString("en-US")} characters).`,
+              lineNumber,
+              contentStart + 1,
+              offset + contentStart,
+              offset + rawLine.length,
+            ),
           );
         } else {
           owner.node[name] = decoded;

@@ -906,6 +906,47 @@ a.button {
   box-shadow: inset 0 0 0 2px var(--accent);
 }
 
+.webgl-edge-layer,
+.webgl-edge-label-layer {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.webgl-edge-label-layer {
+  z-index: 1;
+}
+
+.graph-canvas > .x6-graph-svg {
+  position: relative;
+  z-index: 2;
+}
+
+/* Large diagrams spend most paint time on text and port detail that cannot be
+   read at overview scales. Keep node silhouettes visible and progressively
+   restore their information as the user zooms in. */
+.graph-canvas[data-zoom-detail="overview"] .x6-node text,
+.graph-canvas[data-zoom-detail="overview"] .x6-node .x6-port {
+  display: none;
+}
+
+.graph-canvas[data-zoom-detail="compact"] .x6-node [data-selector="text"],
+.graph-canvas[data-zoom-detail="compact"] .x6-node [data-selector="textCaption"],
+.graph-canvas[data-zoom-detail="compact"] .x6-node [data-selector="answer"],
+.graph-canvas[data-zoom-detail="compact"] .x6-node [data-selector="answerCaption"],
+.graph-canvas[data-zoom-detail="compact"] .x6-node [data-selector="detail"],
+.graph-canvas[data-zoom-detail="compact"] .x6-node [data-selector="feature"],
+.graph-canvas[data-zoom-detail="compact"] .x6-node [data-selector="featureBody"],
+.graph-canvas[data-zoom-detail="compact"] .x6-node [data-selector="category"],
+.graph-canvas[data-zoom-detail="compact"] .x6-node [data-selector="categoryBody"],
+.graph-canvas[data-zoom-detail="compact"] .x6-node [data-selector^="dataCell"],
+.graph-canvas[data-zoom-detail="compact"] .x6-node .x6-port {
+  display: none;
+}
+
 .shape-placement-cue {
   position: absolute;
   z-index: 17;

@@ -5,6 +5,7 @@ import {
   maxCanvasScale,
   minCanvasScale,
   nextWheelZoomScale,
+  zoomDetailLevel,
 } from "../src/canvas/navigation";
 
 describe("canvas navigation", () => {
@@ -16,6 +17,12 @@ describe("canvas navigation", () => {
   it("keeps wheel zoom within the supported scale range", () => {
     expect(nextWheelZoomScale(minCanvasScale, 10_000)).toBe(minCanvasScale);
     expect(nextWheelZoomScale(maxCanvasScale, -10_000)).toBe(maxCanvasScale);
+  });
+
+  it("reduces SVG detail as large diagrams zoom out", () => {
+    expect(zoomDetailLevel(0.05)).toBe("overview");
+    expect(zoomDetailLevel(0.25)).toBe("compact");
+    expect(zoomDetailLevel(1)).toBe("detail");
   });
 
   it("treats connection bounds near the viewport as visible", () => {
