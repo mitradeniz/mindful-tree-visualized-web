@@ -27,7 +27,6 @@ import {
   type GraphDocument,
   type GraphNode,
   type NodeKind,
-  type NodeShape,
 } from "../domain/graph-document";
 import { ScriptEditor } from "../editor/script-editor";
 import { getLocale, localeOptions, localizeElement, setLocale, t, type Locale } from "../i18n";
@@ -38,6 +37,10 @@ import {
   presetsForView,
   primaryPlaygroundPresets,
 } from "../playground/presets";
+import {
+  shapePaletteForDocument,
+  type ShapePalettePreset,
+} from "../playground/shape-palettes";
 import { compileMindTree } from "../scripting/compiler";
 import type { Diagnostic } from "../scripting/diagnostic";
 import { loadProject, saveProject, type SavedProject } from "../storage/project-storage";
@@ -65,105 +68,6 @@ interface SourcePanelLayout {
   ratio: number;
   collapsed: boolean;
 }
-
-interface ShapePalettePreset {
-  shape: NodeShape;
-  kind: NodeKind;
-  name: string;
-  shapeName: string;
-  label: string;
-  keepNativeShape?: boolean;
-}
-
-const defaultShapePalette: readonly ShapePalettePreset[] = [
-  { shape: "card", kind: "process", name: "Step", shapeName: "Card", label: "New step" },
-  { shape: "pill", kind: "start", name: "Start", shapeName: "Pill", label: "New start" },
-  { shape: "diamond", kind: "decision", name: "Choice", shapeName: "Diamond", label: "New decision" },
-  { shape: "circle", kind: "neuron", name: "Node", shapeName: "Circle", label: "New node" },
-];
-
-const shapePalettes: Partial<Record<DiagramView, readonly ShapePalettePreset[]>> = {
-  flow: [
-    { shape: "card", kind: "process", name: "Step", shapeName: "Process", label: "New step" },
-    { shape: "pill", kind: "input", name: "Input", shapeName: "Input", label: "New input" },
-    { shape: "diamond", kind: "decision", name: "Choice", shapeName: "Decision", label: "New decision" },
-    { shape: "circle", kind: "outcome", name: "Result", shapeName: "Outcome", label: "New result" },
-  ],
-  neural: [
-    { shape: "card", kind: "input", name: "Input", shapeName: "Signal", label: "New input" },
-    { shape: "pill", kind: "layer", name: "Layer", shapeName: "Layer", label: "New layer" },
-    { shape: "diamond", kind: "output", name: "Output", shapeName: "Output", label: "New output" },
-    { shape: "circle", kind: "neuron", name: "Neuron", shapeName: "Neuron", label: "New neuron" },
-  ],
-  logic: [
-    { shape: "card", kind: "input", name: "Input", shapeName: "Input", label: "New input" },
-    { shape: "pill", kind: "outcome", name: "Result", shapeName: "Result", label: "New result" },
-    { shape: "diamond", kind: "decision", name: "Choice", shapeName: "Decision", label: "New decision" },
-    { shape: "circle", kind: "note", name: "Note", shapeName: "Note", label: "New note" },
-  ],
-  algorithm: [
-    { shape: "card", kind: "operation", name: "Step", shapeName: "Operation", label: "New step" },
-    { shape: "pill", kind: "start", name: "Start", shapeName: "Start", label: "New start" },
-    { shape: "diamond", kind: "condition", name: "Choice", shapeName: "Condition", label: "New decision" },
-    { shape: "circle", kind: "return", name: "Result", shapeName: "Return", label: "New result" },
-  ],
-  data: [
-    { shape: "card", kind: "array", name: "Array", shapeName: "Collection", label: "New array", keepNativeShape: true },
-    { shape: "pill", kind: "queue", name: "Queue", shapeName: "Queue", label: "New queue", keepNativeShape: true },
-    { shape: "diamond", kind: "record", name: "Record", shapeName: "Record", label: "New record", keepNativeShape: true },
-    { shape: "circle", kind: "pointer", name: "Pointer", shapeName: "Reference", label: "New pointer", keepNativeShape: true },
-  ],
-};
-
-// Data diagrams need a palette that describes the structure currently being
-// worked on. Keeping the four visual slots stable makes drag/drop predictable,
-// while the semantics of those slots follow the selected structure.
-const dataShapePalettes: Partial<Record<NodeKind, readonly ShapePalettePreset[]>> = {
-  array: [
-    { shape: "card", kind: "array", name: "Array", shapeName: "Collection", label: "New array", keepNativeShape: true },
-    { shape: "pill", kind: "item", name: "Element", shapeName: "Array cell", label: "New element", keepNativeShape: true },
-    { shape: "diamond", kind: "pointer", name: "Index", shapeName: "Index pointer", label: "New index", keepNativeShape: true },
-    { shape: "circle", kind: "record", name: "Value", shapeName: "Stored value", label: "New value", keepNativeShape: true },
-  ],
-  stack: [
-    { shape: "card", kind: "stack", name: "Stack", shapeName: "Stack", label: "New stack", keepNativeShape: true },
-    { shape: "pill", kind: "item", name: "Push", shapeName: "Stack item", label: "New pushed item", keepNativeShape: true },
-    { shape: "diamond", kind: "item", name: "Pop", shapeName: "Removed item", label: "New popped item", keepNativeShape: true },
-    { shape: "circle", kind: "pointer", name: "Top", shapeName: "Top pointer", label: "New top pointer", keepNativeShape: true },
-  ],
-  queue: [
-    { shape: "card", kind: "queue", name: "Queue", shapeName: "Queue", label: "New queue", keepNativeShape: true },
-    { shape: "pill", kind: "item", name: "Enqueue", shapeName: "New entry", label: "New queued item", keepNativeShape: true },
-    { shape: "diamond", kind: "item", name: "Dequeue", shapeName: "Removed entry", label: "New dequeued item", keepNativeShape: true },
-    { shape: "circle", kind: "pointer", name: "Front", shapeName: "Front pointer", label: "New front pointer", keepNativeShape: true },
-  ],
-  list: [
-    { shape: "card", kind: "list", name: "List", shapeName: "Linked list", label: "New list", keepNativeShape: true },
-    { shape: "pill", kind: "item", name: "Node", shapeName: "List node", label: "New list node", keepNativeShape: true },
-    { shape: "diamond", kind: "record", name: "Payload", shapeName: "Node data", label: "New payload", keepNativeShape: true },
-    { shape: "circle", kind: "pointer", name: "Link", shapeName: "Next pointer", label: "New link", keepNativeShape: true },
-  ],
-  record: [
-    { shape: "card", kind: "record", name: "Record", shapeName: "Record", label: "New record", keepNativeShape: true },
-    { shape: "pill", kind: "item", name: "Field", shapeName: "Record field", label: "New field", keepNativeShape: true },
-    { shape: "diamond", kind: "record", name: "Nested record", shapeName: "Nested data", label: "New nested record", keepNativeShape: true },
-    { shape: "circle", kind: "pointer", name: "Reference", shapeName: "Field reference", label: "New reference", keepNativeShape: true },
-  ],
-  pointer: [
-    { shape: "card", kind: "item", name: "Target", shapeName: "Referenced value", label: "New target", keepNativeShape: true },
-    { shape: "pill", kind: "pointer", name: "Pointer", shapeName: "Reference", label: "New pointer", keepNativeShape: true },
-    { shape: "diamond", kind: "record", name: "Address", shapeName: "Address record", label: "New address", keepNativeShape: true },
-    { shape: "circle", kind: "pointer", name: "Link", shapeName: "Reference link", label: "New link", keepNativeShape: true },
-  ],
-  item: [
-    { shape: "card", kind: "item", name: "Item", shapeName: "Data item", label: "New item", keepNativeShape: true },
-    { shape: "pill", kind: "array", name: "Array", shapeName: "Collection", label: "New array", keepNativeShape: true },
-    { shape: "diamond", kind: "record", name: "Record", shapeName: "Structured value", label: "New record", keepNativeShape: true },
-    { shape: "circle", kind: "pointer", name: "Pointer", shapeName: "Reference", label: "New pointer", keepNativeShape: true },
-  ],
-};
-
-const dataPaletteKinds = new Set<NodeKind>(["array", "item", "stack", "queue", "list", "record", "pointer"]);
 
 const sourcePanelLayoutKey = "branchscript-source-panel-layout";
 const maxImportBytes = 1_048_576;
@@ -222,7 +126,7 @@ export class BranchScriptApp {
   private syncingQuickEditor = false;
   private searchResultIndex = -1;
   private searchResultQuery = "";
-  private pendingShape: NodeShape | null = null;
+  private pendingShapePresetId: string | null = null;
   private sourceName = "software-interview.mtree";
 
   constructor(private readonly root: HTMLElement) {}
@@ -743,9 +647,9 @@ export class BranchScriptApp {
     return this.shapePaletteForCurrentView()
       .map(
         (preset) => `
-          <button class="shape-palette-item" type="button" data-shape-preset="${preset.shape}" aria-label="${t("Drag {name} shape", { name: t(preset.name) })}" aria-pressed="false">
+          <button class="shape-palette-item" type="button" data-shape-preset="${preset.id}" aria-label="${t("Drag {name} shape", { name: t(preset.name) })}" aria-pressed="false">
             <span class="shape-palette-preview ${preset.shape}" aria-hidden="true"></span>
-            <span><strong>${preset.name}</strong><small>${preset.shapeName}</small></span>
+            <span><strong>${t(preset.name)}</strong><small>${t(preset.shapeName)}</small></span>
           </button>
         `,
       )
@@ -753,35 +657,18 @@ export class BranchScriptApp {
   }
 
   private shapePaletteForCurrentView(): readonly ShapePalettePreset[] {
-    const document = this.store.get().document;
-    if (!document) return defaultShapePalette;
-    if (document.view === "data") {
-      const selected = document.nodes.find((node) => node.id === this.store.get().selectedNodeId);
-      const contextKind = selected && dataPaletteKinds.has(selected.kind)
-        ? selected.kind
-        : document.nodes.find((node) => dataPaletteKinds.has(node.kind))?.kind;
-      return (contextKind && dataShapePalettes[contextKind]) ?? shapePalettes.data ?? defaultShapePalette;
-    }
-    return shapePalettes[document.view] ?? defaultShapePalette;
+    const state = this.store.get();
+    return shapePaletteForDocument(state.document, state.selectedNodeId);
   }
 
-  private refreshShapePalette(view: DiagramView): void {
-    void view;
+  private refreshShapePalette(): void {
     const presets = this.shapePaletteForCurrentView();
-    const buttons = [...this.root.querySelectorAll<HTMLButtonElement>("[data-shape-preset]")];
-    presets.forEach((preset, index) => {
-      const button = buttons[index];
-      if (!button) return;
-      button.dataset.shapePreset = preset.shape;
-      button.dataset.shapeKind = preset.kind;
-      button.setAttribute("aria-label", t("Drag {name} shape", { name: t(preset.name) }));
-      const preview = button.querySelector<HTMLElement>(".shape-palette-preview");
-      if (preview) preview.className = `shape-palette-preview ${preset.shape}`;
-      const name = button.querySelector("strong");
-      if (name) name.textContent = t(preset.name);
-      const shapeName = button.querySelector("small");
-      if (shapeName) shapeName.textContent = t(preset.shapeName);
-    });
+    if (this.pendingShapePresetId && !presets.some((preset) => preset.id === this.pendingShapePresetId)) {
+      this.setPendingShape(null);
+    }
+    const list = this.root.querySelector<HTMLElement>(".shape-palette-list");
+    if (list) list.innerHTML = this.shapePaletteMarkup();
+    this.setPendingShape(this.pendingShapePresetId);
     // A new box should begin with the first valid type for the active visual
     // language. Existing-node editors keep their own type unchanged.
     if (!this.editingNodeId) {
@@ -1016,7 +903,7 @@ export class BranchScriptApp {
     this.store.update({ document: result.document });
     (this.requireElement("global-font-scale") as HTMLSelectElement).value = String(result.document.fontScale);
     this.updateViewControls(result.document.view);
-    this.refreshShapePalette(result.document.view);
+    this.refreshShapePalette();
     this.refreshQuickOptions(result.document);
     const positions = this.canvas?.render(
       result.document,
@@ -1040,10 +927,12 @@ export class BranchScriptApp {
   private bindShapePalette(): void {
     const canvasElement = this.requireElement("graph-canvas");
     const quickBuilder = this.requireElement("quick-builder");
+    const paletteList = this.root.querySelector<HTMLElement>(".shape-palette-list");
+    if (!paletteList) return;
     let pointerDrag: {
       pointerId: number;
       pointerType: string;
-      shape: NodeShape;
+      presetId: string;
       button: HTMLButtonElement;
       startX: number;
       startY: number;
@@ -1058,15 +947,15 @@ export class BranchScriptApp {
       return target === canvasElement || (target instanceof Element && canvasElement.contains(target));
     };
 
-    const createGhost = (shape: NodeShape): HTMLElement => {
-      const preset = this.shapePreset(shape);
+    const createGhost = (presetId: string): HTMLElement => {
+      const preset = this.shapePreset(presetId);
       const ghost = document.createElement("div");
       ghost.className = "shape-drag-ghost";
       ghost.setAttribute("aria-hidden", "true");
       const preview = document.createElement("span");
-      preview.className = `shape-palette-preview ${shape}`;
+      preview.className = `shape-palette-preview ${preset?.shape ?? "card"}`;
       const label = document.createElement("strong");
-      label.textContent = preset ? t(preset.name) : shape;
+      label.textContent = preset ? t(preset.name) : presetId;
       ghost.append(preview, label);
       document.body.append(ghost);
       return ghost;
@@ -1083,7 +972,7 @@ export class BranchScriptApp {
         window.setTimeout(() => delete drag.button.dataset.suppressClick, 0);
         if (dropped) {
           const position = this.canvas?.clientPointToGraph(event.clientX, event.clientY);
-          if (position) this.addShapeAt(drag.shape, position);
+          if (position) this.addShapeAt(drag.presetId, position);
         }
       }
       try {
@@ -1101,72 +990,72 @@ export class BranchScriptApp {
       }
     };
 
-    for (const button of this.root.querySelectorAll<HTMLButtonElement>("[data-shape-preset]")) {
-      button.addEventListener("pointerdown", (event) => {
-        if (!event.isPrimary || event.button !== 0) return;
-        const shape = button.dataset.shapePreset as NodeShape;
-        if (!this.shapePreset(shape)) return;
-        pointerDrag = {
-          pointerId: event.pointerId,
-          pointerType: event.pointerType,
-          shape,
-          button,
-          startX: event.clientX,
-          startY: event.clientY,
-          active: false,
-          ghost: null,
-        };
-        try {
-          button.setPointerCapture(event.pointerId);
-        } catch {
-          // Synthetic pointer events do not always provide capture.
+    paletteList.addEventListener("pointerdown", (event) => {
+      const button = (event.target as Element).closest<HTMLButtonElement>("[data-shape-preset]");
+      if (!button || !event.isPrimary || event.button !== 0) return;
+      const presetId = button.dataset.shapePreset ?? "";
+      if (!this.shapePreset(presetId)) return;
+      pointerDrag = {
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        presetId,
+        button,
+        startX: event.clientX,
+        startY: event.clientY,
+        active: false,
+        ghost: null,
+      };
+      try {
+        button.setPointerCapture(event.pointerId);
+      } catch {
+        // Synthetic pointer events do not always provide capture.
+      }
+    });
+    paletteList.addEventListener("pointermove", (event) => {
+      const drag = pointerDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      if (!drag.active && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 7) return;
+      event.preventDefault();
+      if (!drag.active) {
+        drag.active = true;
+        drag.ghost = createGhost(drag.presetId);
+        this.setPendingShape(null);
+        drag.button.dataset.dragging = "true";
+        if (drag.pointerType === "touch" && window.matchMedia("(max-width: 560px)").matches) {
+          quickBuilder.classList.add("shape-pointer-dragging");
         }
-      });
-      button.addEventListener("pointermove", (event) => {
-        const drag = pointerDrag;
-        if (!drag || drag.pointerId !== event.pointerId || drag.button !== button) return;
-        if (!drag.active && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 7) return;
-        event.preventDefault();
-        if (!drag.active) {
-          drag.active = true;
-          drag.ghost = createGhost(drag.shape);
-          this.setPendingShape(null);
-          button.dataset.dragging = "true";
-          if (drag.pointerType === "touch" && window.matchMedia("(max-width: 560px)").matches) {
-            quickBuilder.classList.add("shape-pointer-dragging");
-          }
-        }
-        if (drag.ghost) {
-          drag.ghost.style.left = `${event.clientX}px`;
-          drag.ghost.style.top = `${event.clientY}px`;
-        }
-        canvasElement.classList.toggle("shape-drop-target", pointInsideCanvas(event.clientX, event.clientY));
-      });
-      button.addEventListener("pointerup", (event) => finishPointerDrag(event));
-      button.addEventListener("pointercancel", (event) => finishPointerDrag(event, true));
-      button.addEventListener("click", () => {
-        if (button.dataset.suppressClick === "true") return;
-        const shape = button.dataset.shapePreset as NodeShape;
-        this.setPendingShape(this.pendingShape === shape ? null : shape);
-        if (this.pendingShape && window.matchMedia("(max-width: 560px)").matches) this.closeQuickBuilder(false);
-      });
-    }
+      }
+      if (drag.ghost) {
+        drag.ghost.style.left = `${event.clientX}px`;
+        drag.ghost.style.top = `${event.clientY}px`;
+      }
+      canvasElement.classList.toggle("shape-drop-target", pointInsideCanvas(event.clientX, event.clientY));
+    });
+    paletteList.addEventListener("pointerup", (event) => finishPointerDrag(event));
+    paletteList.addEventListener("pointercancel", (event) => finishPointerDrag(event, true));
+    paletteList.addEventListener("click", (event) => {
+      const button = (event.target as Element).closest<HTMLButtonElement>("[data-shape-preset]");
+      if (!button || button.dataset.suppressClick === "true") return;
+      const presetId = button.dataset.shapePreset ?? "";
+      this.setPendingShape(this.pendingShapePresetId === presetId ? null : presetId);
+      if (this.pendingShapePresetId && window.matchMedia("(max-width: 560px)").matches) this.closeQuickBuilder(false);
+    });
     window.addEventListener("pointerup", (event) => finishPointerDrag(event), { capture: true });
     window.addEventListener("pointercancel", (event) => finishPointerDrag(event, true), { capture: true });
   }
 
-  private shapePreset(shape: NodeShape): ShapePalettePreset | undefined {
-    return this.shapePaletteForCurrentView().find((preset) => preset.shape === shape);
+  private shapePreset(presetId: string): ShapePalettePreset | undefined {
+    return this.shapePaletteForCurrentView().find((preset) => preset.id === presetId);
   }
 
-  private setPendingShape(shape: NodeShape | null): void {
-    this.pendingShape = shape;
-    const preset = shape ? this.shapePreset(shape) : null;
+  private setPendingShape(presetId: string | null): void {
+    const preset = presetId ? this.shapePreset(presetId) : null;
+    this.pendingShapePresetId = preset?.id ?? null;
     const cue = this.requireElement("shape-placement-cue");
     cue.hidden = !preset;
     this.requireElement("graph-canvas").classList.toggle("shape-placement-active", Boolean(preset));
     for (const button of this.root.querySelectorAll<HTMLButtonElement>("[data-shape-preset]")) {
-      button.setAttribute("aria-pressed", String(button.dataset.shapePreset === shape));
+      button.setAttribute("aria-pressed", String(button.dataset.shapePreset === this.pendingShapePresetId));
     }
     if (preset) {
       this.requireElement("shape-placement-label").textContent = t("Tap canvas to place {name}", {
@@ -1176,14 +1065,14 @@ export class BranchScriptApp {
   }
 
   private placePendingShape(position: Point): void {
-    if (!this.pendingShape) return;
-    const shape = this.pendingShape;
+    if (!this.pendingShapePresetId) return;
+    const presetId = this.pendingShapePresetId;
     this.setPendingShape(null);
-    this.addShapeAt(shape, position);
+    this.addShapeAt(presetId, position);
   }
 
-  private addShapeAt(shape: NodeShape, center: Point): void {
-    const preset = this.shapePreset(shape);
+  private addShapeAt(presetId: string, center: Point): void {
+    const preset = this.shapePreset(presetId);
     if (!preset) return;
     const label = t(preset.label);
     const id = this.uniqueNodeId(label);
@@ -1196,7 +1085,7 @@ export class BranchScriptApp {
       label,
       tags: [],
       priority: "normal",
-      ...(preset.keepNativeShape ? {} : { shape }),
+      ...(preset.keepNativeShape ? {} : { shape: preset.shape }),
       source: {
         from: { offset: 0, line: 1, column: 1 },
         to: { offset: 0, line: 1, column: 1 },
@@ -1209,7 +1098,11 @@ export class BranchScriptApp {
     this.store.update({ positions: { ...this.store.get().positions, [id]: position } });
     this.appendScript([
       `${preset.kind} ${id} ${JSON.stringify(label)}`,
-      ...(preset.keepNativeShape ? [] : [`  @shape ${shape}`]),
+      ...(preset.keepNativeShape ? [] : [`  @shape ${preset.shape}`]),
+      ...(preset.items?.length ? [`  @items ${JSON.stringify(preset.items.map((item) => t(item)).join(" | "))}`] : []),
+      ...(preset.fields?.length ? [`  @fields ${JSON.stringify(preset.fields.map((field) => t(field)).join(" | "))}`] : []),
+      ...(preset.text ? [`  @text ${JSON.stringify(t(preset.text))}`] : []),
+      ...(preset.feature ? [`  @feature ${JSON.stringify(t(preset.feature))}`] : []),
     ]);
     this.updateStatus(t("Added {name}", { name: label }), "working");
   }
@@ -1826,7 +1719,7 @@ export class BranchScriptApp {
       .map((nodeId) => graphDocument?.nodes.find((candidate) => candidate.id === nodeId))
       .filter((node): node is GraphNode => node !== undefined);
     this.store.update({ selectedNodeId: selectedNodes[0]?.id ?? null });
-    if (graphDocument?.view === "data") this.refreshShapePalette(graphDocument.view);
+    if (graphDocument?.view === "data") this.refreshShapePalette();
     this.renderInspector(selectedNodes[0], selectedNodes.length);
     this.editor?.showNodeSelections(
       selectedNodes.map((node) => ({ from: node.source.from.offset, to: node.source.to.offset })),
