@@ -12,7 +12,7 @@ COPY . .
 RUN npm run build \
     && test -f dist/index.html
 
-FROM nginxinc/nginx-unprivileged:1.28.1-alpine
+FROM nginxinc/nginx-unprivileged:1.31.5-alpine
 
 USER root
 
