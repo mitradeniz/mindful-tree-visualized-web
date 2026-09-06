@@ -3,6 +3,9 @@ import type { LayoutDirection, Point, Theme } from "../app/app-store";
 export interface SavedProject {
   id: "default";
   sourceName?: string;
+  baseline?: string;
+  imported?: boolean;
+  cloudReference?: { ownerId: number; id: number; title: string; revision: number } | null;
   source: string;
   direction: LayoutDirection;
   theme: Theme;

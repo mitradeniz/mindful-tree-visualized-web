@@ -1,4 +1,4 @@
-import { defaultKeymap, historyKeymap, indentWithTab, redo, undo } from "@codemirror/commands";
+import { defaultKeymap, historyKeymap, indentWithTab, isolateHistory, redo, undo } from "@codemirror/commands";
 import { forceLinting, lintGutter, linter, type Diagnostic as EditorDiagnostic } from "@codemirror/lint";
 import { searchKeymap } from "@codemirror/search";
 import { EditorState, StateEffect, StateField } from "@codemirror/state";
@@ -79,10 +79,11 @@ export class ScriptEditor {
     forceLinting(this.view);
   }
 
-  setValue(source: string, options: { scrollToTop?: boolean } = {}): void {
+  setValue(source: string, options: { scrollToTop?: boolean; separateUndo?: boolean } = {}): void {
     const current = this.view.state.doc.toString();
     if (current === source && !options.scrollToTop) return;
     this.view.dispatch({
+      ...(options.separateUndo ? { annotations: isolateHistory.of("full") } : {}),
       ...(current === source ? {} : { changes: { from: 0, to: current.length, insert: source } }),
       ...(options.scrollToTop ? { selection: { anchor: 0 } } : {}),
       ...(options.scrollToTop

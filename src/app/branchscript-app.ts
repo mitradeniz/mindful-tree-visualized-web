@@ -2,6 +2,7 @@ import defaultSource from "../../examples/software-interview.mtree?raw";
 import { z } from "zod";
 import type { Point } from "./app-store";
 import { AppStore } from "./app-store";
+import { projectFingerprint } from "./project-state";
 import {
   authErrorMessage,
   createDiagram,
@@ -20,6 +21,7 @@ import {
   type CloudDiagramSummary,
 } from "../auth/cloud-api";
 import { GraphCanvas } from "../canvas/graph-canvas";
+import { DrawingLayer, writeDrawings, type DrawingTool } from "../canvas/drawing-layer";
 import { sizeForNode } from "../canvas/layout";
 import {
   nodeContentLimits,
@@ -62,6 +64,7 @@ interface ConfirmationOptions {
   message: string;
   confirmLabel: string;
   tone?: "default" | "danger";
+  offerSave?: boolean;
 }
 
 interface SourcePanelLayout {
@@ -108,13 +111,14 @@ export class BranchScriptApp {
 
   private editor: ScriptEditor | null = null;
   private canvas: GraphCanvas | null = null;
+  private drawings: DrawingLayer | null = null;
   private compileTimer: number | null = null;
   private saveTimer: number | null = null;
   private runnerOpen = false;
   private runPath: string[] = [];
   private user: BranchScriptUser | null = null;
   private cloudDiagrams: CloudDiagramSummary[] = [];
-  private currentCloudDiagram: CloudDiagram | null = null;
+  private currentCloudDiagram: Pick<CloudDiagram, "id" | "title" | "revision"> | null = null;
   private contextNodeId: string | null = null;
   private confirmationResolver: ((accepted: boolean) => void) | null = null;
   private confirmationPreviousFocus: HTMLElement | null = null;
@@ -128,6 +132,10 @@ export class BranchScriptApp {
   private searchResultQuery = "";
   private pendingShapePresetId: string | null = null;
   private sourceName = "software-interview.mtree";
+  private baseline = "";
+  private imported = false;
+  private saving = false;
+  private saveNameResolver: ((name: string | null) => void) | null = null;
 
   constructor(private readonly root: HTMLElement) {}
 
@@ -174,11 +182,22 @@ export class BranchScriptApp {
       },
     });
 
+    this.drawings = new DrawingLayer(canvasElement, (x, y) => this.canvas!.clientPointToGraph(x, y), (strokes) => {
+      const source = writeDrawings(this.store.get().source, strokes);
+      if (source.length > 1_000_000) { this.updateStatus("Drawing limit reached", "error"); this.drawings?.setSource(this.store.get().source); return; }
+      this.editor?.setValue(source, { separateUndo: true });
+    });
+    this.canvas.onViewportChange(() => this.drawings?.refreshViewport());
+    this.drawings.setTool('select');
     this.bindControls();
     this.applySourcePanelLayout();
     this.compile(true);
+    this.baseline = saved?.baseline ?? projectFingerprint(this.store.get());
+    this.imported = saved?.imported ?? false;
+    this.store.subscribe(() => this.updateProjectActions());
+    this.updateProjectActions();
     this.updateStatus("Ready", "ok");
-    void this.refreshSession(true);
+    void this.refreshSession(true, saved?.cloudReference);
   }
 
   private template(): string {
@@ -195,6 +214,10 @@ export class BranchScriptApp {
           <div class="topbar-actions" aria-label="Project actions">
             <a class="button ghost app-home-link" href="/">Home</a>
             <button class="button cloud-action" id="cloud-save-button" type="button">Save project</button>
+            <button class="button mobile-project-action" id="mobile-project-button" type="button" aria-expanded="false" aria-controls="mobile-project-panel">Project</button>
+            <button class="button ghost" id="save-as-button" type="button">Save as</button>
+            <span id="project-save-state" role="status" class="project-save-state"></span>
+            <button class="button ghost" id="profile-button" type="button">Profile</button>
             <button class="button ghost account-action" id="account-button" type="button">Sign in</button>
             <button class="button ghost" id="guide-button" type="button">Learn</button>
             <button class="button ghost" id="template-library-button" type="button">Examples</button>
@@ -292,6 +315,7 @@ export class BranchScriptApp {
                 </label>
                 <button class="button ghost compact" id="direction-button" type="button">Left → right</button>
                 <button class="button ghost compact" id="layout-button" type="button">Auto layout</button>
+                <button class="button ghost compact" id="category-examples-button" type="button">Examples for this diagram</button>
                 <button class="button ghost compact" id="fit-button" type="button">Fit view</button>
                 <button class="button ghost compact fullscreen-button" id="fullscreen-button" type="button" aria-label="Full screen"><span aria-hidden="true">⛶</span><span class="fullscreen-label">Full screen</span></button>
                 <button class="button live compact" id="live-run-button" type="button">▶ Live run</button>
@@ -300,6 +324,17 @@ export class BranchScriptApp {
               </div>
             </div>
             <div id="graph-canvas" class="graph-canvas"></div>
+            <div class="drawing-toolbar" role="toolbar" aria-label="Drawing tools">
+              <label><span class="sr-only">Drawing tool</span><select id="drawing-tool" aria-label="Drawing tool">
+                <option value="select">Select / move</option><option value="pen">Pen</option><option value="eraser">Eraser</option>
+                <option value="rectangle">Rectangle</option><option value="ellipse">Ellipse</option><option value="diamond">Diamond</option><option value="line">Line</option>
+              </select></label>
+              <input id="drawing-color" type="color" value="#149b83" aria-label="Drawing color" />
+              <select id="drawing-width" aria-label="Stroke width"><option value="2">2 px</option><option value="3" selected>3 px</option><option value="6">6 px</option><option value="12">12 px</option></select>
+              <button id="drawing-undo" type="button" class="icon-button" aria-label="Undo drawing">↶</button>
+              <button id="drawing-redo" type="button" class="icon-button" aria-label="Redo drawing">↷</button>
+              <span class="sr-only">Eraser removes a whole stroke</span>
+            </div>
             <div id="shape-placement-cue" class="shape-placement-cue" hidden>
               <span id="shape-placement-label"></span>
               <button class="icon-button" id="shape-placement-cancel" type="button" aria-label="Cancel shape placement">×</button>
@@ -588,10 +623,37 @@ export class BranchScriptApp {
               <p id="confirmation-message"></p>
             </div>
             <footer class="confirmation-actions">
+              <button class="button primary" id="confirmation-save" type="button" hidden>Save and continue</button>
               <button class="button ghost" id="confirmation-cancel" type="button">Cancel</button>
               <button class="button primary" id="confirmation-accept" type="button">Replace</button>
             </footer>
           </section>
+        </aside>
+        <aside id="mobile-project-panel" class="side-panel mobile-project-panel" aria-label="Project actions" hidden>
+          <header class="side-panel-header"><strong>Project</strong><button id="mobile-project-close" type="button" class="icon-button" aria-label="Close project actions">×</button></header>
+          <div class="mobile-project-content">
+            <button class="button" id="mobile-save" type="button">Save project</button>
+            <button class="button" id="mobile-save-as" type="button">Save as</button>
+            <button class="button" id="mobile-library" type="button">My diagrams</button>
+            <button class="button" id="mobile-profile" type="button">Profile</button>
+          </div>
+        </aside>
+        <aside id="save-name-panel" class="confirmation-panel" hidden>
+          <section class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="save-name-title">
+            <form id="save-name-form">
+              <h2 id="save-name-title">Save as</h2>
+              <label class="field">Diagram name<input id="save-name-input" required maxlength="160" /></label>
+              <footer class="confirmation-actions"><button class="button ghost" id="save-name-cancel" type="button">Cancel</button><button class="button primary" type="submit">Save project</button></footer>
+            </form>
+          </section>
+        </aside>
+        <aside id="profile-panel" class="side-panel profile-panel" aria-labelledby="profile-title" hidden>
+          <header class="side-panel-header"><h2 id="profile-title">Profile</h2><button id="profile-close" class="icon-button" aria-label="Close profile" type="button">×</button></header>
+          <div class="profile-content"><h3 id="profile-name"></h3><p id="profile-email"></p><p id="profile-quota"></p>
+            <p>Free plan · up to 25 private diagrams</p>
+            <button id="profile-library" class="button primary" type="button">My diagrams</button>
+            <button id="profile-signout" class="button ghost" type="button">Sign out</button>
+          </div>
         </aside>
       </main>
     `;
@@ -616,6 +678,8 @@ export class BranchScriptApp {
 
   private templateLibraryMarkup(): string {
     const groups: Array<{ view: DiagramView; title: string; description: string }> = [
+      { view: "tree", title: "Tree", description: "Questions, answers and branches" },
+      { view: "flow", title: "Flow", description: "Steps, decisions and outcomes" },
       { view: "data", title: "Data structures", description: "Memory, indexing, queues, caches, and references" },
       { view: "algorithm", title: "Algorithms", description: "Search, sorting, graph traversal, and rate limiting" },
       { view: "logic", title: "Logic systems", description: "Calculator, authorization, checkout, and answer routing" },
@@ -678,6 +742,14 @@ export class BranchScriptApp {
   }
 
   private bindControls(): void {
+    this.requireElement('drawing-tool').addEventListener('change', (event) => {
+      this.closeRunner(); this.closeQuickBuilder();
+      this.drawings?.setTool((event.target as HTMLSelectElement).value as DrawingTool);
+    });
+    this.requireElement('drawing-color').addEventListener('input', (event) => { if (this.drawings) this.drawings.color = (event.target as HTMLInputElement).value; });
+    this.requireElement('drawing-width').addEventListener('change', (event) => { if (this.drawings) this.drawings.width = Number((event.target as HTMLSelectElement).value); });
+    this.requireElement('drawing-undo').addEventListener('click', () => this.editor?.undo());
+    this.requireElement('drawing-redo').addEventListener('click', () => this.editor?.redo());
     for (const button of this.root.querySelectorAll<HTMLButtonElement>("[data-mobile-view-button]")) {
       button.addEventListener("click", () => this.setMobileView(button.dataset.mobileViewButton as "source" | "canvas"));
     }
@@ -692,6 +764,65 @@ export class BranchScriptApp {
     this.requireElement("account-panel-close").addEventListener("click", () => this.closeAccountPanel());
     this.root.querySelector("[data-account-close]")?.addEventListener("click", () => this.closeAccountPanel());
     this.requireElement("cloud-save-button").addEventListener("click", () => void this.saveToCloud());
+    this.requireElement("save-as-button").addEventListener("click", () => void this.saveToCloud(true));
+    const closeProjectMenu = () => {
+      this.requireElement("mobile-project-panel").hidden = true;
+      this.requireElement("mobile-project-button").setAttribute("aria-expanded", "false");
+    };
+    this.requireElement("mobile-project-close").addEventListener("click", closeProjectMenu);
+    this.requireElement("mobile-project-button").addEventListener("click", () => {
+      const panel = this.requireElement("mobile-project-panel");
+      panel.hidden = !panel.hidden;
+      this.requireElement("mobile-project-button").setAttribute("aria-expanded", String(!panel.hidden));
+    });
+    this.requireElement("mobile-save").addEventListener("click", () => { closeProjectMenu(); void this.saveToCloud(); });
+    this.requireElement("mobile-save-as").addEventListener("click", () => { closeProjectMenu(); void this.saveToCloud(true); });
+    this.requireElement("mobile-library").addEventListener("click", () => { closeProjectMenu(); this.openAccountPanel(); });
+    this.requireElement("mobile-profile").addEventListener("click", () => { closeProjectMenu(); this.openProfile(); });
+    this.requireElement("confirmation-save").addEventListener("click", async () => {
+      if (await this.saveToCloud()) this.resolveConfirmation(true);
+    });
+    this.requireElement("save-name-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const name = (this.requireElement("save-name-input") as HTMLInputElement).value.trim();
+      if (name) this.resolveSaveName(name);
+    });
+    this.requireElement("save-name-cancel").addEventListener("click", () => this.resolveSaveName(null));
+    this.requireElement("profile-button").addEventListener("click", () => this.openProfile());
+    this.requireElement("profile-close").addEventListener("click", () => { this.requireElement("profile-panel").hidden = true; });
+    this.requireElement("profile-library").addEventListener("click", () => {
+      this.requireElement("profile-panel").hidden = true;
+      this.openAccountPanel();
+    });
+    this.requireElement("profile-signout").addEventListener("click", () => void this.signOut());
+    this.requireElement("category-examples-button").addEventListener("click", () => this.openTemplateLibrary(this.store.get().document?.view));
+    window.addEventListener("beforeunload", (event) => {
+      this.flushQuickEditorSync();
+      if (!this.isProjectDirty()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    });
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Tab" && (this.saveNameResolver || this.confirmationResolver)) {
+        const modal = this.requireElement(this.saveNameResolver ? "save-name-panel" : "confirmation-panel");
+        const controls = [...modal.querySelectorAll<HTMLElement>("input, button")].filter((element) => !element.hidden && !(element as HTMLButtonElement).disabled);
+        const first = controls[0], last = controls.at(-1);
+        if (event.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) {
+          event.preventDefault(); last?.focus();
+        } else if (!event.shiftKey && (document.activeElement === last || !modal.contains(document.activeElement))) {
+          event.preventDefault(); first?.focus();
+        }
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void this.saveToCloud(event.shiftKey);
+      }
+      if (event.key === "Escape") {
+        closeProjectMenu();
+        if (this.saveNameResolver) { event.stopImmediatePropagation(); this.resolveSaveName(null); }
+        this.requireElement("profile-panel").hidden = true;
+      }
+    });
     this.requireElement("library-save-button").addEventListener("click", () => void this.saveToCloud());
     this.requireElement("logout-button").addEventListener("click", () => void this.signOut());
     for (const tab of this.root.querySelectorAll<HTMLButtonElement>("[data-auth-tab]")) {
@@ -901,6 +1032,7 @@ export class BranchScriptApp {
     }
 
     this.store.update({ document: result.document });
+    this.drawings?.setSource(this.store.get().source);
     (this.requireElement("global-font-scale") as HTMLSelectElement).value = String(result.document.fontScale);
     this.updateViewControls(result.document.view);
     this.refreshShapePalette();
@@ -1237,12 +1369,15 @@ export class BranchScriptApp {
     this.requireElement("learn-panel").hidden = true;
   }
 
-  private openTemplateLibrary(): void {
+  private openTemplateLibrary(view?: DiagramView): void {
     this.setMobileView("canvas");
     this.closeQuickBuilder();
     this.closeLearnPanel();
     this.requireElement("template-library").hidden = false;
-    this.root.querySelector<HTMLButtonElement>("[data-example-preset]")?.focus();
+    for (const group of this.root.querySelectorAll<HTMLElement>("[data-template-group]")) {
+      group.hidden = Boolean(view && group.dataset.templateGroup !== view);
+    }
+    this.root.querySelector<HTMLButtonElement>("[data-template-group]:not([hidden]) [data-example-preset]")?.focus();
   }
 
   private closeTemplateLibrary(): void {
@@ -1418,14 +1553,13 @@ export class BranchScriptApp {
     if (!this.editingNodeId) return;
     if (this.quickEditorTimer !== null) window.clearTimeout(this.quickEditorTimer);
     this.quickEditorTimer = window.setTimeout(() => {
-      this.quickEditorTimer = null;
       this.flushQuickEditorSync();
     }, 180);
   }
 
   private flushQuickEditorSync(): void {
     const nodeId = this.editingNodeId;
-    if (!nodeId) return;
+    if (!nodeId || this.quickEditorTimer === null) return;
     if (this.quickEditorTimer !== null) {
       window.clearTimeout(this.quickEditorTimer);
       this.quickEditorTimer = null;
@@ -1857,14 +1991,7 @@ export class BranchScriptApp {
   }
 
   private async startBlankProject(): Promise<void> {
-    if (this.store.get().source !== blankProjectSource) {
-      const accepted = await this.requestConfirmation({
-        title: t("Replace current diagram?"),
-        message: t("Start a blank project and replace the current editor content?"),
-        confirmLabel: t("Replace"),
-      });
-      if (!accepted) return;
-    }
+    if (!await this.canLeaveProject()) return;
     this.closeRunner();
     this.closeQuickBuilder();
     this.currentCloudDiagram = null;
@@ -1872,20 +1999,14 @@ export class BranchScriptApp {
     this.store.update({ source: blankProjectSource, positions: {}, direction: "TB", selectedNodeId: null });
     this.editor?.setValue(blankProjectSource, { scrollToTop: true });
     this.compileImmediately(true);
+    this.markProjectClean();
     this.updateStatus(t("Blank project ready"), "ok");
   }
 
   private async loadPreset(presetId: string): Promise<void> {
     const preset = presetById(presetId);
     if (!preset) return;
-    if (this.store.get().source !== preset.source) {
-      const accepted = await this.requestConfirmation({
-        title: t("Replace current diagram?"),
-        message: t("Load this playground template and replace the current editor content?"),
-        confirmLabel: t("Replace"),
-      });
-      if (!accepted) return;
-    }
+    if (!await this.canLeaveProject()) return;
     const direction = preset.view === "flow" || preset.view === "neural" || preset.view === "data" ? "LR" : "TB";
     this.closeTemplateLibrary();
     this.closeQuickBuilder();
@@ -1896,6 +2017,7 @@ export class BranchScriptApp {
     this.runPath = [];
     this.renderInspector(undefined);
     this.compileImmediately(true);
+    this.markProjectClean();
     this.updateStatus(t("Loaded {name}", { name: t(preset.title) }), "ok");
   }
 
@@ -1906,6 +2028,8 @@ export class BranchScriptApp {
     }
     this.closeQuickBuilder();
     this.closeCanvasContextMenu();
+    this.drawings?.setTool('select');
+    (this.requireElement('drawing-tool') as HTMLSelectElement).value = 'select';
     this.runnerOpen = true;
     this.canvas?.setEditingLocked(true);
     this.requireElement("playground-runner").hidden = false;
@@ -2053,12 +2177,18 @@ export class BranchScriptApp {
     }[view];
   }
 
-  private async refreshSession(promptSignedOut = false): Promise<void> {
+  private async refreshSession(promptSignedOut = false, savedCloud?: SavedProject["cloudReference"]): Promise<void> {
+    const initialFingerprint = projectFingerprint(this.store.get());
     try {
       this.user = await getSession();
     } catch {
       this.user = null;
     }
+    if (savedCloud && this.user?.id === savedCloud.ownerId && initialFingerprint === projectFingerprint(this.store.get())) {
+      // Keep the saved revision: never silently overwrite a newer remote edit.
+      this.currentCloudDiagram = savedCloud;
+    }
+    this.updateProjectActions();
     this.renderAccountState();
     if (this.user) await this.refreshCloudLibrary();
     if (!this.user && promptSignedOut) {
@@ -2149,6 +2279,7 @@ export class BranchScriptApp {
   }
 
   private async signOut(): Promise<void> {
+    if (this.saving || this.saveNameResolver) return;
     try {
       await logout();
     } catch {
@@ -2158,6 +2289,9 @@ export class BranchScriptApp {
     this.user = null;
     this.cloudDiagrams = [];
     this.currentCloudDiagram = null;
+    this.requireElement("profile-panel").hidden = true;
+    this.updateProjectActions();
+    this.scheduleSave();
     this.renderAccountState();
     this.setAuthTab("login");
   }
@@ -2216,12 +2350,9 @@ export class BranchScriptApp {
   }
 
   private async openCloudDiagram(summary: CloudDiagramSummary): Promise<void> {
-    const accepted = await this.requestConfirmation({
-      title: t("Replace current diagram?"),
-      message: t("Open “{name}” and replace the current canvas?", { name: summary.title }),
-      confirmLabel: t("Open"),
-    });
-    if (!accepted) return;
+    if (!await this.canLeaveProject()) return;
+    const sourceBeforeLoad = projectFingerprint(this.store.get());
+    const ownerId = this.user?.id;
     let diagram: CloudDiagram;
     try {
       diagram = await getDiagram(summary.id);
@@ -2229,6 +2360,8 @@ export class BranchScriptApp {
       this.updateStatus(authErrorMessage(error), "error");
       return;
     }
+    if (ownerId !== this.user?.id) return;
+    if (sourceBeforeLoad !== projectFingerprint(this.store.get()) && !await this.canLeaveProject()) return;
     const workspace = diagram.workspace ?? {};
     this.currentCloudDiagram = diagram;
     this.closeQuickBuilder();
@@ -2242,36 +2375,43 @@ export class BranchScriptApp {
     this.applyTheme();
     this.editor?.setValue(diagram.source, { scrollToTop: true });
     this.compileImmediately(true);
+    this.markProjectClean();
     this.renderCloudLibrary();
     this.closeAccountPanel();
     this.updateStatus(t("Opened {name}", { name: diagram.title }), "ok");
   }
 
-  private async saveToCloud(): Promise<void> {
+  private async saveToCloud(saveAs = false): Promise<boolean> {
+    if (this.saving || this.saveNameResolver) return false;
+    this.flushQuickEditorSync();
     if (!this.user) {
+      this.resolveConfirmation(false);
       this.openAccountPanel();
       this.setAuthMessage("Sign in or create an account to save this diagram.");
       this.updateStatus("Sign in or create an account to save this diagram.", "error");
-      return;
+      return false;
     }
+    if (!saveAs && this.currentCloudDiagram && !this.isProjectDirty()) return true;
     // The editor's normal compile is debounced. Saving must always use the
     // exact source and rendered workspace visible at the moment of the click.
     this.compileImmediately(false);
     const state = this.store.get();
-    if (!state.document) {
+    if (!state.document || state.diagnostics.some((item) => item.severity === "error")) {
       this.updateStatus("Fix script issues before cloud save", "error");
-      return;
+      return false;
     }
     const currentTitle = this.currentCloudDiagram?.title ?? state.document.title;
-    const requestedTitle = window.prompt("Name this diagram", currentTitle);
+    const requestedTitle = saveAs || !this.currentCloudDiagram
+      ? await this.requestSaveName(currentTitle)
+      : currentTitle;
     if (requestedTitle === null) {
       this.updateStatus("Cloud save cancelled", "ok");
-      return;
+      return false;
     }
     const title = requestedTitle.trim();
     if (!title || title.length > 160) {
       this.updateStatus("Enter a diagram name between 1 and 160 characters", "error");
-      return;
+      return false;
     }
     const payload = {
       title,
@@ -2280,15 +2420,101 @@ export class BranchScriptApp {
       workspace: { direction: state.direction, positions: state.positions, theme: state.theme },
     };
     this.updateStatus("Saving to cloud…", "working");
+    this.saving = true;
+    this.updateProjectActions();
+    const savedFingerprint = projectFingerprint(state);
     try {
-      this.currentCloudDiagram = this.currentCloudDiagram
+      this.currentCloudDiagram = this.currentCloudDiagram && !saveAs
         ? await updateDiagram({ ...this.currentCloudDiagram, ...payload })
         : await createDiagram(payload);
+      this.baseline = savedFingerprint;
+      this.imported = false;
+      this.scheduleSave();
       await this.refreshCloudLibrary();
-      this.updateStatus("Saved to cloud", "ok");
+      this.updateStatus(this.isProjectDirty() ? "Saved snapshot; newer changes are unsaved" : "Saved to cloud", "ok");
+      return !this.isProjectDirty();
     } catch (error) {
       this.updateStatus(authErrorMessage(error), "error");
+      return false;
+    } finally {
+      this.saving = false;
+      this.updateProjectActions();
     }
+  }
+
+  private isProjectDirty(): boolean {
+    return this.imported || (this.baseline !== "" && projectFingerprint(this.store.get()) !== this.baseline);
+  }
+
+  private markProjectClean(imported = false): void {
+    this.drawings?.setTool('select');
+    (this.requireElement('drawing-tool') as HTMLSelectElement).value = 'select';
+    this.baseline = projectFingerprint(this.store.get());
+    this.imported = imported;
+    this.updateProjectActions();
+    this.scheduleSave();
+  }
+
+  private updateProjectActions(): void {
+    const dirty = this.isProjectDirty();
+    const save = this.requireElement("cloud-save-button") as HTMLButtonElement;
+    const saveAs = this.requireElement("save-as-button") as HTMLButtonElement;
+    save.dataset.dirty = String(dirty && !this.imported);
+    save.disabled = this.saving || Boolean(this.currentCloudDiagram && !dirty);
+    saveAs.dataset.dirty = String(this.imported);
+    saveAs.disabled = this.saving;
+    const mobileSave = this.requireElement("mobile-save") as HTMLButtonElement;
+    const mobileSaveAs = this.requireElement("mobile-save-as") as HTMLButtonElement;
+    mobileSave.disabled = save.disabled;
+    mobileSaveAs.disabled = saveAs.disabled;
+    mobileSave.dataset.dirty = save.dataset.dirty;
+    mobileSaveAs.dataset.dirty = saveAs.dataset.dirty;
+    this.requireElement("mobile-project-button").dataset.dirty = String(dirty);
+    for (const id of ['confirmation-accept', 'confirmation-save', 'confirmation-cancel']) {
+      (this.requireElement(id) as HTMLButtonElement).disabled = this.saving;
+    }
+    save.setAttribute("aria-busy", String(this.saving));
+    this.requireElement("project-save-state").textContent = t(this.saving ? "Saving to cloud…" : dirty ? "Unsaved changes" : this.currentCloudDiagram ? "Saved to cloud" : "Unchanged draft");
+  }
+
+  private async canLeaveProject(): Promise<boolean> {
+    this.flushQuickEditorSync();
+    if (this.saving || this.saveNameResolver) return false;
+    if (!this.isProjectDirty()) return true;
+    return this.requestConfirmation({
+      title: t("Unsaved changes"),
+      message: t("Save your changes before switching diagrams?"),
+      confirmLabel: t("Discard changes"),
+      offerSave: true,
+    });
+  }
+
+  private requestSaveName(title: string): Promise<string | null> {
+    const input = this.requireElement("save-name-input") as HTMLInputElement;
+    input.value = title;
+    this.requireElement("save-name-panel").hidden = false;
+    input.focus();
+    input.select();
+    return new Promise((resolve) => { this.saveNameResolver = resolve; });
+  }
+
+  private resolveSaveName(name: string | null): void {
+    this.requireElement("save-name-panel").hidden = true;
+    const resolve = this.saveNameResolver;
+    this.saveNameResolver = null;
+    resolve?.(name);
+    this.requireElement("cloud-save-button").focus();
+  }
+
+  private openProfile(): void {
+    if (!this.user) { this.openAccountPanel(); return; }
+    this.requireElement("profile-name").textContent = this.user.full_name;
+    this.requireElement("profile-email").textContent = this.user.email;
+    this.requireElement("profile-quota").textContent = `${this.cloudDiagrams.length} / 25`;
+    this.requireElement("profile-panel").hidden = false;
+    void this.refreshCloudLibrary().then(() => {
+      this.requireElement("profile-quota").textContent = `${this.cloudDiagrams.length} / 25`;
+    });
   }
 
   private async removeCloudDiagram(diagram: CloudDiagramSummary): Promise<void> {
@@ -2323,6 +2549,7 @@ export class BranchScriptApp {
     this.confirmationPreviousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.requireElement("confirmation-title").textContent = options.title;
     this.requireElement("confirmation-message").textContent = options.message;
+    this.requireElement("confirmation-save").hidden = !options.offerSave;
     accept.textContent = options.confirmLabel;
     panel.dataset.tone = options.tone ?? "default";
     panel.hidden = false;
@@ -2333,6 +2560,7 @@ export class BranchScriptApp {
   }
 
   private resolveConfirmation(accepted: boolean): void {
+    if (this.saving) return;
     const resolve = this.confirmationResolver;
     if (!resolve) return;
     this.confirmationResolver = null;
@@ -2358,6 +2586,12 @@ export class BranchScriptApp {
       await saveProject({
         id: "default",
         sourceName: this.sourceName,
+        baseline: this.baseline,
+        imported: this.imported,
+        cloudReference: this.currentCloudDiagram && this.user ? {
+          id: this.currentCloudDiagram.id, title: this.currentCloudDiagram.title,
+          revision: this.currentCloudDiagram.revision, ownerId: this.user.id,
+        } : null,
         source: state.source,
         direction: state.direction,
         theme: state.theme,
@@ -2382,10 +2616,9 @@ export class BranchScriptApp {
     const file = this.fileInput().files?.[0];
     if (!file) return;
     try {
+      if (!await this.canLeaveProject()) return;
       if (file.size > maxImportBytes) throw new Error("Import files must be 1 MB or smaller.");
       const text = await file.text();
-      this.currentCloudDiagram = null;
-      this.closeQuickBuilder();
       if (file.name.toLowerCase().endsWith(".json")) {
         const parsed = importBundleSchema.safeParse(JSON.parse(text) as unknown);
         if (!parsed.success) throw new Error("Invalid BranchScript project file.");
@@ -2405,6 +2638,9 @@ export class BranchScriptApp {
         this.editor?.setValue(text, { scrollToTop: true });
       }
       this.compileImmediately(true);
+      this.currentCloudDiagram = null;
+      this.closeQuickBuilder();
+      this.markProjectClean(true);
     } catch (error) {
       this.updateStatus(error instanceof Error ? error.message : "Import failed", "error");
     } finally {

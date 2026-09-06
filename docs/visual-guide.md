@@ -32,6 +32,8 @@ The workspace includes:
 - Local persistence without an account and private cloud saving after sign-in
 - `.mtree` source export and complete project export
 
+See the [project saving and drawing guide](project-workflow.md) for Save/Save as, unsaved-change protection, annotations, category-specific examples, and the profile panel.
+
 ## Interview preparation as a navigable map
 
 The Tree view is useful when a conversation can move through several possible answers and follow-ups. A short title remains visible on the canvas, while `@text`, `@answer`, and `@feature` keep the material needed during practice.

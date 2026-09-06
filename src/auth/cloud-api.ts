@@ -239,7 +239,7 @@ export async function createDiagram(
   return body.diagram;
 }
 
-export async function updateDiagram(diagram: CloudDiagram): Promise<CloudDiagram> {
+export async function updateDiagram(diagram: Pick<CloudDiagram, "id" | "title" | "revision" | "source" | "view" | "workspace">): Promise<CloudDiagram> {
   // The API deliberately rejects unknown fields. A read response contains id
   // and timestamps, but an update must contain only writable fields plus the
   // optimistic-concurrency revision.

@@ -645,6 +645,7 @@ export class GraphCanvas {
   }
 
   private readonly onCanvasPointerDown = (event: PointerEvent): void => {
+    if ((event.target as Element).closest('.drawing-layer')) return;
     if (event.pointerType !== "touch") return;
     if (event.target instanceof Element && event.target.closest("[data-resize-handle]")) return;
     this.consumeTouchEvent(event);
@@ -670,6 +671,7 @@ export class GraphCanvas {
   };
 
   private readonly onCanvasPointerMove = (event: PointerEvent): void => {
+    if ((event.target as Element).closest('.drawing-layer')) return;
     if (event.pointerType !== "touch") return;
     const previous = this.activeTouches.get(event.pointerId);
     if (!previous) return;
@@ -712,6 +714,7 @@ export class GraphCanvas {
   };
 
   private readonly onCanvasPointerUp = (event: PointerEvent): void => {
+    if ((event.target as Element).closest('.drawing-layer')) return;
     if (event.pointerType !== "touch") return;
     this.consumeTouchEvent(event);
     const start = this.touchStart;
@@ -1977,6 +1980,11 @@ export class GraphCanvas {
   clientPointToGraph(clientX: number, clientY: number): Point {
     const point = this.graph.clientToGraph({ x: clientX, y: clientY });
     return { x: point.x, y: point.y };
+  }
+
+  onViewportChange(callback: () => void): void {
+    this.graph.on('scale', callback);
+    this.graph.on('translate', callback);
   }
 
   private emitPositions(): void {
