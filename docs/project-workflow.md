@@ -16,7 +16,7 @@ Cloud saving still requires authentication and uses the existing 25-diagram API 
 
 The canvas toolbar offers a pen, line, rectangle, ellipse, diamond, stroke color/width, and eraser. Draw with a mouse, pen, or one touch pointer. Switch back to **Select / move** to navigate and edit diagram nodes. The eraser removes an entire drawing stroke, not graph nodes. Undo/redo uses the source editor history; each completed drawing is a separate undo step.
 
-Annotations are stored in graph coordinates and follow canvas pan/zoom. They round-trip through local backup, cloud saves, `.mtree` export, and workspace `.json` export as bounded JSON comments:
+Annotations are stored in fixed canvas-pixel coordinates. Canvas pan, zoom, fit view, and automatic layout therefore do not resize or move them. They round-trip through local backup, cloud saves, `.mtree` export, and workspace `.json` export as bounded JSON comments:
 
 ```text
 # branchscript-drawing {"id":"example","tool":"line","color":"#149b83","width":3,"points":[{"x":10,"y":10},{"x":80,"y":40}]}

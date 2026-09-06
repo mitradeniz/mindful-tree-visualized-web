@@ -182,7 +182,7 @@ export class BranchScriptApp {
       },
     });
 
-    this.drawings = new DrawingLayer(canvasElement, (x, y) => this.canvas!.clientPointToGraph(x, y), (strokes) => {
+    this.drawings = new DrawingLayer(canvasElement, (strokes) => {
       const source = writeDrawings(this.store.get().source, strokes);
       if (source.length > 1_000_000) { this.updateStatus("Drawing limit reached", "error"); this.drawings?.setSource(this.store.get().source); return; }
       this.editor?.setValue(source, { separateUndo: true });

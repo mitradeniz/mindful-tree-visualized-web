@@ -42,7 +42,6 @@ export function drawingPath(stroke: DrawingStroke): string {
   return stroke.points.map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' ');
 }
 
-// Annotations use graph coordinates, so pan and zoom keep them attached to the diagram.
 export class DrawingLayer {
   private readonly svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   private strokes: DrawingStroke[] = [];
@@ -52,7 +51,7 @@ export class DrawingLayer {
   color = '#149b83';
   width = 3;
 
-  constructor(private host: HTMLElement, private toGraph: (x: number, y: number) => Point,
+  constructor(private host: HTMLElement,
     private onChange: (strokes: DrawingStroke[]) => void) {
     this.svg.classList.add('drawing-layer');
     this.svg.setAttribute('aria-label', 'Drawing canvas');
@@ -63,11 +62,10 @@ export class DrawingLayer {
       event.preventDefault(); event.stopPropagation();
       if (this.tool === 'eraser') { this.erase(event); return; }
       if (this.tool === 'select' || this.strokes.length >= 500) return;
-      const p = toGraph(event.clientX, event.clientY);
+      const p = this.clientPoint(event.clientX, event.clientY);
       if (!point.safeParse(p).success) return;
-      const unit = toGraph(event.clientX + this.width, event.clientY);
       this.active = { id: crypto.randomUUID(), tool: this.tool, color: this.color,
-        width: Math.min(500, Math.max(0.1, Math.abs(unit.x - p.x))), points: [p, p] };
+        width: Math.min(500, Math.max(0.1, this.width)), points: [p, p] };
       this.pointerId = event.pointerId;
       this.svg.setPointerCapture(event.pointerId);
       this.render();
@@ -76,7 +74,7 @@ export class DrawingLayer {
       if (this.tool === 'eraser' && event.buttons === 1) { this.erase(event); return; }
       if (!this.active || event.pointerId !== this.pointerId) return;
       event.preventDefault(); event.stopPropagation();
-      const p = toGraph(event.clientX, event.clientY);
+      const p = this.clientPoint(event.clientX, event.clientY);
       if (!point.safeParse(p).success) return;
       if (this.active.tool === 'pen' && this.active.points.length < 2048) this.active.points.push(p);
       else this.active.points[this.active.points.length - 1] = p;
@@ -108,8 +106,12 @@ export class DrawingLayer {
 
   refreshViewport(): void {
     const rect = this.host.getBoundingClientRect();
-    const a = this.toGraph(rect.left, rect.top), b = this.toGraph(rect.right, rect.bottom);
-    if (b.x > a.x && b.y > a.y) this.svg.setAttribute('viewBox', `${a.x} ${a.y} ${b.x - a.x} ${b.y - a.y}`);
+    if (rect.width > 0 && rect.height > 0) this.svg.setAttribute('viewBox', `0 0 ${rect.width} ${rect.height}`);
+  }
+
+  private clientPoint(clientX: number, clientY: number): Point {
+    const rect = this.host.getBoundingClientRect();
+    return { x: clientX - rect.left, y: clientY - rect.top };
   }
 
   private cancel(): void {
