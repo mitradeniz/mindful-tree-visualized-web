@@ -16,13 +16,13 @@ Cloud saving still requires authentication and uses the existing 25-diagram API 
 
 The canvas toolbar offers a pen, line, rectangle, ellipse, diamond, stroke color/width, and eraser. Draw with a mouse, pen, or one touch pointer. Switch back to **Select / move** to navigate and edit diagram nodes. The eraser removes an entire drawing stroke, not graph nodes. Undo/redo uses the source editor history; each completed drawing is a separate undo step.
 
-Annotations are stored in fixed canvas-pixel coordinates. Canvas pan, zoom, fit view, and automatic layout therefore do not resize or move them. They round-trip through local backup, cloud saves, `.mtree` export, and workspace `.json` export as bounded JSON comments:
+Annotations are stored in graph coordinates. Canvas pan and zoom therefore keep them attached to the diagram and scale their geometry proportionally. Pointer updates are batched to animation frames so long pen strokes do not rebuild every existing SVG path. They round-trip through local backup, cloud saves, `.mtree` export, and workspace `.json` export as bounded JSON comments:
 
 ```text
 # branchscript-drawing {"id":"example","tool":"line","color":"#149b83","width":3,"points":[{"x":10,"y":10},{"x":80,"y":40}]}
 ```
 
-They are decorative annotations, not connectable/executable graph nodes. They are not included in minimap rendering or automatic graph layout. The reader validates geometry and colors; malformed annotations are ignored. Limits: 500 strokes, 2,048 points per stroke, and the existing total source/import size limits.
+They are decorative annotations, not connectable/executable graph nodes. They are not included in minimap rendering or automatic graph layout. The reader validates geometry and colors; malformed annotations are ignored. Drawing Undo/Redo uses a separate 100-step stroke history, so it does not undo unrelated source edits. Limits: 500 strokes, 2,048 points per stroke, and the existing total source/import size limits.
 
 ## Examples and profile
 

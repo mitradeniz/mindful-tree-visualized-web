@@ -182,7 +182,7 @@ export class BranchScriptApp {
       },
     });
 
-    this.drawings = new DrawingLayer(canvasElement, (strokes) => {
+    this.drawings = new DrawingLayer(canvasElement, (x, y) => this.canvas!.clientPointToGraph(x, y), (strokes) => {
       const source = writeDrawings(this.store.get().source, strokes);
       if (source.length > 1_000_000) { this.updateStatus("Drawing limit reached", "error"); this.drawings?.setSource(this.store.get().source); return; }
       this.editor?.setValue(source, { separateUndo: true });
@@ -748,8 +748,8 @@ export class BranchScriptApp {
     });
     this.requireElement('drawing-color').addEventListener('input', (event) => { if (this.drawings) this.drawings.color = (event.target as HTMLInputElement).value; });
     this.requireElement('drawing-width').addEventListener('change', (event) => { if (this.drawings) this.drawings.width = Number((event.target as HTMLSelectElement).value); });
-    this.requireElement('drawing-undo').addEventListener('click', () => this.editor?.undo());
-    this.requireElement('drawing-redo').addEventListener('click', () => this.editor?.redo());
+    this.requireElement('drawing-undo').addEventListener('click', () => this.drawings?.undo());
+    this.requireElement('drawing-redo').addEventListener('click', () => this.drawings?.redo());
     for (const button of this.root.querySelectorAll<HTMLButtonElement>("[data-mobile-view-button]")) {
       button.addEventListener("click", () => this.setMobileView(button.dataset.mobileViewButton as "source" | "canvas"));
     }
@@ -2448,6 +2448,7 @@ export class BranchScriptApp {
 
   private markProjectClean(imported = false): void {
     this.drawings?.setTool('select');
+    this.drawings?.resetHistory();
     (this.requireElement('drawing-tool') as HTMLSelectElement).value = 'select';
     this.baseline = projectFingerprint(this.store.get());
     this.imported = imported;

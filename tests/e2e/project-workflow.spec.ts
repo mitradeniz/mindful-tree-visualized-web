@@ -44,9 +44,11 @@ test('pen and geometry persist in source and undo; eraser removes strokes', asyn
   await expect(page.locator('.cm-content')).toContainText('# branchscript-drawing');
   await expect(page.locator('.drawing-layer path')).toHaveCount(1);
   const pathBeforeZoom = await page.locator('.drawing-layer path').getAttribute('d');
+  const viewBoxBeforeZoom = await page.locator('.drawing-layer').getAttribute('viewBox');
   await page.mouse.move(x + 50, y + 15);
   await page.mouse.wheel(0, -500);
   await expect(page.locator('.drawing-layer path')).toHaveAttribute('d', pathBeforeZoom!);
+  await expect(page.locator('.drawing-layer')).not.toHaveAttribute('viewBox', viewBoxBeforeZoom!);
   await page.locator('#drawing-tool').selectOption('rectangle');
   await page.mouse.move(x, y + 70); await page.mouse.down();
   await page.mouse.move(x + 80, y + 150, { steps: 5 }); await page.mouse.up();

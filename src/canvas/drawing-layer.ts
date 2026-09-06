@@ -13,6 +13,11 @@ const strokeSchema = z.object({
 });
 export type DrawingStroke = z.infer<typeof strokeSchema>;
 
+function isValidPoint(value: Point): boolean {
+  return Number.isFinite(value.x) && Number.isFinite(value.y)
+    && value.x >= -1e6 && value.x <= 1e6 && value.y >= -1e6 && value.y <= 1e6;
+}
+
 export function readDrawings(source: string): DrawingStroke[] {
   const strokes: DrawingStroke[] = [];
   for (const line of source.split(/\r?\n/)) {
@@ -45,13 +50,20 @@ export function drawingPath(stroke: DrawingStroke): string {
 export class DrawingLayer {
   private readonly svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   private strokes: DrawingStroke[] = [];
+  private past: DrawingStroke[][] = [];
+  private future: DrawingStroke[][] = [];
   private active: DrawingStroke | null = null;
   private pointerId: number | null = null;
+  private lastClientPoint: Point | null = null;
+  private renderFrame: number | null = null;
+  private fullRenderQueued = false;
+  private activeRenderQueued = false;
+  private readonly pathById = new Map<string, SVGPathElement>();
   private tool: DrawingTool = 'select';
   color = '#149b83';
   width = 3;
 
-  constructor(private host: HTMLElement,
+  constructor(private host: HTMLElement, private toGraph: (x: number, y: number) => Point,
     private onChange: (strokes: DrawingStroke[]) => void) {
     this.svg.classList.add('drawing-layer');
     this.svg.setAttribute('aria-label', 'Drawing canvas');
@@ -62,23 +74,29 @@ export class DrawingLayer {
       event.preventDefault(); event.stopPropagation();
       if (this.tool === 'eraser') { this.erase(event); return; }
       if (this.tool === 'select' || this.strokes.length >= 500) return;
-      const p = this.clientPoint(event.clientX, event.clientY);
-      if (!point.safeParse(p).success) return;
+      const p = this.toGraph(event.clientX, event.clientY);
+      if (!isValidPoint(p)) return;
+      const unit = this.toGraph(event.clientX + this.width, event.clientY);
+      const worldWidth = Math.abs(unit.x - p.x) || Math.abs(this.toGraph(event.clientX, event.clientY + this.width).y - p.y);
       this.active = { id: crypto.randomUUID(), tool: this.tool, color: this.color,
-        width: Math.min(500, Math.max(0.1, this.width)), points: [p, p] };
+        width: Math.min(500, Math.max(0.1, worldWidth)), points: [p, p] };
       this.pointerId = event.pointerId;
+      this.lastClientPoint = { x: event.clientX, y: event.clientY };
       this.svg.setPointerCapture(event.pointerId);
-      this.render();
+      this.queueRender(false);
     });
     this.svg.addEventListener('pointermove', (event) => {
       if (this.tool === 'eraser' && event.buttons === 1) { this.erase(event); return; }
       if (!this.active || event.pointerId !== this.pointerId) return;
       event.preventDefault(); event.stopPropagation();
-      const p = this.clientPoint(event.clientX, event.clientY);
-      if (!point.safeParse(p).success) return;
+      const clientPoint = { x: event.clientX, y: event.clientY };
+      if (this.lastClientPoint && Math.hypot(clientPoint.x - this.lastClientPoint.x, clientPoint.y - this.lastClientPoint.y) < 0.75) return;
+      const p = this.toGraph(event.clientX, event.clientY);
+      if (!isValidPoint(p)) return;
+      this.lastClientPoint = clientPoint;
       if (this.active.tool === 'pen' && this.active.points.length < 2048) this.active.points.push(p);
       else this.active.points[this.active.points.length - 1] = p;
-      this.render();
+      this.queueRender(false);
     });
     this.svg.addEventListener('pointerup', (event) => {
       if (event.pointerId !== this.pointerId || !this.active) return;
@@ -86,10 +104,9 @@ export class DrawingLayer {
       const stroke = this.active;
       this.cancel();
       if (stroke.points.some((p) => Math.hypot(p.x - stroke.points[0]!.x, p.y - stroke.points[0]!.y) > 0.5)) {
-        this.strokes.push(stroke);
-        this.onChange(this.strokes);
+        this.commit([...this.strokes, stroke]);
       }
-      this.render();
+      this.queueRender(true);
     });
     this.svg.addEventListener('pointercancel', () => this.cancel());
     this.svg.addEventListener('dblclick', (event) => event.stopPropagation());
@@ -102,44 +119,101 @@ export class DrawingLayer {
     this.svg.style.cursor = tool === 'eraser' ? 'cell' : 'crosshair';
   }
 
-  setSource(source: string): void { this.strokes = readDrawings(source); this.render(); }
+  setSource(source: string): void { this.strokes = readDrawings(source); this.queueRender(true); }
+
+  resetHistory(): void { this.past = []; this.future = []; }
+
+  undo(): void {
+    const previous = this.past.pop();
+    if (!previous) return;
+    this.future.push(this.strokes);
+    this.strokes = previous;
+    this.onChange(this.strokes);
+    this.queueRender(true);
+  }
+
+  redo(): void {
+    const next = this.future.pop();
+    if (!next) return;
+    this.past.push(this.strokes);
+    this.strokes = next;
+    this.onChange(this.strokes);
+    this.queueRender(true);
+  }
 
   refreshViewport(): void {
     const rect = this.host.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0) this.svg.setAttribute('viewBox', `0 0 ${rect.width} ${rect.height}`);
-  }
-
-  private clientPoint(clientX: number, clientY: number): Point {
-    const rect = this.host.getBoundingClientRect();
-    return { x: clientX - rect.left, y: clientY - rect.top };
+    const a = this.toGraph(rect.left, rect.top), b = this.toGraph(rect.right, rect.bottom);
+    if (b.x > a.x && b.y > a.y) this.svg.setAttribute('viewBox', `${a.x} ${a.y} ${b.x - a.x} ${b.y - a.y}`);
   }
 
   private cancel(): void {
     if (this.pointerId !== null && this.svg.hasPointerCapture(this.pointerId)) this.svg.releasePointerCapture(this.pointerId);
-    this.pointerId = null; this.active = null; this.render();
+    this.pointerId = null; this.lastClientPoint = null; this.active = null; this.queueRender(true);
   }
 
   private erase(event: PointerEvent): void {
     const target = event.target as Element;
     const id = target.getAttribute('data-stroke');
     if (!id) return;
-    this.strokes = this.strokes.filter((stroke) => stroke.id !== id);
-    this.onChange(this.strokes); this.render();
+    const next = this.strokes.filter((stroke) => stroke.id !== id);
+    if (next.length === this.strokes.length) return;
+    this.commit(next);
+  }
+
+  private commit(next: DrawingStroke[]): void {
+    this.past.push(this.strokes);
+    if (this.past.length > 100) this.past.shift();
+    this.future = [];
+    this.strokes = next;
+    this.onChange(this.strokes);
+    this.queueRender(true);
+  }
+
+  private queueRender(full: boolean): void {
+    this.fullRenderQueued ||= full;
+    this.activeRenderQueued ||= !full;
+    if (this.renderFrame !== null) return;
+    this.renderFrame = requestAnimationFrame(() => {
+      this.renderFrame = null;
+      const shouldRenderFull = this.fullRenderQueued;
+      const shouldRenderActive = this.activeRenderQueued;
+      this.fullRenderQueued = false;
+      this.activeRenderQueued = false;
+      if (shouldRenderFull) this.render();
+      else if (shouldRenderActive && this.active) this.renderActive();
+      this.refreshViewport();
+    });
   }
 
   private render(): void {
-    this.svg.replaceChildren();
-    for (const stroke of [...this.strokes, ...(this.active ? [this.active] : [])]) {
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.setAttribute('d', drawingPath(stroke));
-      path.setAttribute('stroke', stroke.color);
-      path.setAttribute('stroke-width', String(stroke.width));
+    const activeId = this.active?.id;
+    const visibleIds = new Set(this.strokes.map((stroke) => stroke.id));
+    if (activeId) visibleIds.add(activeId);
+    for (const [id, path] of this.pathById) {
+      if (!visibleIds.has(id)) { path.remove(); this.pathById.delete(id); }
+    }
+    for (const stroke of this.strokes) this.renderStroke(stroke);
+    if (this.active) this.renderStroke(this.active);
+  }
+
+  private renderActive(): void {
+    if (this.active) this.renderStroke(this.active);
+  }
+
+  private renderStroke(stroke: DrawingStroke): void {
+    let path = this.pathById.get(stroke.id);
+    if (!path) {
+      path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       path.setAttribute('fill', 'none');
       path.setAttribute('stroke-linecap', 'round');
       path.setAttribute('stroke-linejoin', 'round');
       path.setAttribute('data-stroke', stroke.id);
+      this.pathById.set(stroke.id, path);
       this.svg.append(path);
     }
-    this.refreshViewport();
+    path.setAttribute('d', drawingPath(stroke));
+    path.setAttribute('stroke', stroke.color);
+    path.setAttribute('stroke-width', String(stroke.width));
   }
 }
