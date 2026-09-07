@@ -18,7 +18,14 @@ export interface ViewportMatrix {
 
 interface EdgeLayerResolvers {
   nodeBounds: (nodeId: string) => EdgeNodeBounds | null;
+  edgePorts: (edge: GraphEdge) => FixedEdgePorts | null;
   matrix: () => ViewportMatrix;
+}
+
+export type EdgePort = "top" | "right" | "bottom" | "left";
+export interface FixedEdgePorts {
+  source: EdgePort;
+  target: EdgePort;
 }
 
 interface ScreenPoint {
@@ -99,6 +106,13 @@ function boundaryPoint(bounds: EdgeNodeBounds, target: ScreenPoint): ScreenPoint
   return { x: center.x + dx * scale, y: center.y + dy * scale };
 }
 
+function portPoint(bounds: EdgeNodeBounds, port: EdgePort): ScreenPoint {
+  if (port === "top") return { x: bounds.x + bounds.width / 2, y: bounds.y };
+  if (port === "right") return { x: bounds.x + bounds.width, y: bounds.y + bounds.height / 2 };
+  if (port === "bottom") return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height };
+  return { x: bounds.x, y: bounds.y + bounds.height / 2 };
+}
+
 function cubicPoint(
   start: ScreenPoint,
   controlA: ScreenPoint,
@@ -121,11 +135,11 @@ function cubicPoint(
   };
 }
 
-function edgeCurve(source: EdgeNodeBounds, target: EdgeNodeBounds, matrix: ViewportMatrix): ScreenPoint[] {
+function edgeCurve(source: EdgeNodeBounds, target: EdgeNodeBounds, matrix: ViewportMatrix, ports: FixedEdgePorts | null): ScreenPoint[] {
   const sourceCenter = { x: source.x + source.width / 2, y: source.y + source.height / 2 };
   const targetCenter = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
-  const start = boundaryPoint(source, targetCenter);
-  const end = boundaryPoint(target, sourceCenter);
+  const start = ports ? portPoint(source, ports.source) : boundaryPoint(source, targetCenter);
+  const end = ports ? portPoint(target, ports.target) : boundaryPoint(target, sourceCenter);
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const horizontal = Math.abs(dx) > Math.abs(dy);
@@ -333,7 +347,7 @@ export class WebGLEdgeLayer {
       const active = this.pathPairs.has(`${edge.source}:${edge.target}`);
       const alpha = this.hasPath ? (active ? 1 : 0.08) : document.view === "neural" ? 0.82 : 0.92;
       const width = active ? 3.4 : edge.kind === "reference" ? 1.5 : document.view === "neural" ? 1.4 : 2;
-      return [{ edge, points: edgeCurve(source, target, matrix), color: hexToRgb(edgeColor(edge, document.view)), alpha, width, active }];
+      return [{ edge, points: edgeCurve(source, target, matrix, this.resolvers.edgePorts(edge)), color: hexToRgb(edgeColor(edge, document.view)), alpha, width, active }];
     });
   }
 

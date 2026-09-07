@@ -10,7 +10,7 @@ import { dataFields, dataItems } from "./data-structure";
 import { calculateLayout, sizeForNode, type NodeSize } from "./layout";
 import { intersectsWithOverscan, maxCanvasScale, minCanvasScale, nextWheelZoomScale, zoomDetailLevel } from "./navigation";
 import { matchingNodeIds } from "./search";
-import { shouldUseWebGLEdges, WebGLEdgeLayer } from "./webgl-edge-layer";
+import { shouldUseWebGLEdges, WebGLEdgeLayer, type FixedEdgePorts } from "./webgl-edge-layer";
 
 interface CanvasCallbacks {
   onSelect: (nodeIds: string[]) => void;
@@ -210,6 +210,7 @@ export class GraphCanvas {
   private readonly inlineContentEditor: HTMLTextAreaElement;
   private document: GraphDocument | null = null;
   private edgeVisibilityFrame: number | null = null;
+  private virtualRenderAreaFrame: number | null = null;
   private zoomFrame: number | null = null;
   private pendingZoom: { scale: number; center: Point } | null = null;
   private readonly activeTouches = new Map<number, Point>();
@@ -231,6 +232,7 @@ export class GraphCanvas {
   private lastNodeClick: { nodeId: string; timestamp: number } | null = null;
   private webglEdgesActive = false;
   private virtualRenderEnabled = false;
+  private readonly fixedEdgePortsById = new Map<string, FixedEdgePorts>();
 
   constructor(
     private readonly container: HTMLElement,
@@ -281,6 +283,7 @@ export class GraphCanvas {
         const bounds = cell.getBBox();
         return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
       },
+      edgePorts: (edge) => this.fixedEdgePortsById.get(edge.id) ?? null,
       matrix: () => {
         const matrix = this.graph.matrix();
         return {
@@ -965,6 +968,7 @@ export class GraphCanvas {
   private readonly scheduleViewportOverlays = (): void => {
     this.scheduleEdgeVisibility();
     this.scheduleResizeFrame();
+    this.scheduleVirtualRenderArea();
     this.webglEdges.scheduleDraw();
   };
 
@@ -972,6 +976,18 @@ export class GraphCanvas {
     this.updateZoomDetailLevel();
     this.updateVirtualRenderMode();
     this.scheduleViewportOverlays();
+  };
+
+  // X6 refreshes its virtual render area with a 200ms throttle. During a fast
+  // zoom gesture that leaves newly visible nodes in WAITING state, which can
+  // look like empty boxes until a full page refresh. Keep the same virtual
+  // rendering strategy, but refresh its viewport once per animation frame.
+  private readonly scheduleVirtualRenderArea = (): void => {
+    if (!this.virtualRenderEnabled || this.virtualRenderAreaFrame !== null) return;
+    this.virtualRenderAreaFrame = window.requestAnimationFrame(() => {
+      this.virtualRenderAreaFrame = null;
+      if (this.virtualRenderEnabled) this.graph.renderer.setRenderArea(this.graph.getGraphArea());
+    });
   };
 
   private updateZoomDetailLevel(): void {
@@ -1048,6 +1064,12 @@ export class GraphCanvas {
     }
 
     const nodeIds = new Set(document.nodes.map((node) => node.id));
+    this.fixedEdgePortsById.clear();
+    for (const edge of document.edges) {
+      if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
+        this.fixedEdgePortsById.set(edge.id, this.fixedEdgePorts(edge, document, positions));
+      }
+    }
     this.webglEdgesActive = this.webglEdges.available
       && shouldUseWebGLEdges(document.nodes.length, document.edges.length);
     this.container.dataset.edgeRenderer = this.webglEdgesActive ? "webgl" : "svg";
@@ -1055,11 +1077,12 @@ export class GraphCanvas {
     if (!this.webglEdgesActive) {
       for (const edge of document.edges) {
         if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) continue;
+        const edgePorts = this.fixedEdgePortsById.get(edge.id)!;
         const smooth = document.view === "tree" || document.view === "neural";
         this.graph.addEdge({
           id: edge.id,
-          source: edge.source,
-          target: edge.target,
+          source: { cell: edge.source, port: edgePorts.source },
+          target: { cell: edge.target, port: edgePorts.target },
           data: { initial: true },
           zIndex: 0,
           ...(smooth ? {} : { router: { name: "orth", args: { padding: 24 } } }),
@@ -1138,6 +1161,25 @@ export class GraphCanvas {
     const scaled = this.scaleNodeMetadata(metadata);
     scaled.ports = this.connectionPorts(node);
     return scaled;
+  }
+
+  private fixedEdgePorts(
+    edge: GraphEdge,
+    document: GraphDocument,
+    positions: Record<string, Point>,
+  ): { source: "top" | "right" | "bottom" | "left"; target: "top" | "right" | "bottom" | "left" } {
+    const sourceNode = document.nodes.find((node) => node.id === edge.source);
+    const targetNode = document.nodes.find((node) => node.id === edge.target);
+    const sourcePosition = positions[edge.source] ?? { x: 0, y: 0 };
+    const targetPosition = positions[edge.target] ?? { x: 0, y: 0 };
+    const sourceSize = sourceNode ? sizeForNode(sourceNode, document.fontScale) : { width: 0, height: 0 };
+    const targetSize = targetNode ? sizeForNode(targetNode, document.fontScale) : { width: 0, height: 0 };
+    const dx = targetPosition.x + targetSize.width / 2 - (sourcePosition.x + sourceSize.width / 2);
+    const dy = targetPosition.y + targetSize.height / 2 - (sourcePosition.y + sourceSize.height / 2);
+    if (Math.abs(dx) > Math.abs(dy)) {
+      return dx >= 0 ? { source: "right", target: "left" } : { source: "left", target: "right" };
+    }
+    return dy >= 0 ? { source: "bottom", target: "top" } : { source: "top", target: "bottom" };
   }
 
   private connectionPorts(node: GraphNode) {
@@ -1978,7 +2020,7 @@ export class GraphCanvas {
   }
 
   clientPointToGraph(clientX: number, clientY: number): Point {
-    const point = this.graph.clientToGraph({ x: clientX, y: clientY });
+    const point = this.graph.clientToLocal({ x: clientX, y: clientY });
     return { x: point.x, y: point.y };
   }
 
@@ -2030,6 +2072,7 @@ export class GraphCanvas {
     window.removeEventListener("resize", this.scheduleViewportOverlays);
     this.endResizeSession();
     if (this.edgeVisibilityFrame !== null) window.cancelAnimationFrame(this.edgeVisibilityFrame);
+    if (this.virtualRenderAreaFrame !== null) window.cancelAnimationFrame(this.virtualRenderAreaFrame);
     if (this.resizeFrameId !== null) window.cancelAnimationFrame(this.resizeFrameId);
     if (this.zoomFrame !== null) window.cancelAnimationFrame(this.zoomFrame);
     if (this.touchFrame !== null) window.cancelAnimationFrame(this.touchFrame);

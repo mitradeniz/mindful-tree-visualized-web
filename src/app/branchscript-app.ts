@@ -1211,18 +1211,23 @@ export class BranchScriptApp {
     // Use the same native dimensions as the canvas renderer. Data structures
     // deliberately do not all share a shape, so a fixed card/pill estimate
     // would make their centre land away from the drop point.
-    const size = sizeForNode({
+    const visualNode: GraphNode = {
       id,
       kind: preset.kind,
       label,
       tags: [],
       priority: "normal",
       ...(preset.keepNativeShape ? {} : { shape: preset.shape }),
+      ...(preset.text ? { text: t(preset.text) } : {}),
+      ...(preset.feature ? { feature: t(preset.feature) } : {}),
+      ...(preset.items?.length ? { items: preset.items.map((item) => t(item)) } : {}),
+      ...(preset.fields?.length ? { fields: preset.fields.map((field) => t(field)) } : {}),
       source: {
         from: { offset: 0, line: 1, column: 1 },
         to: { offset: 0, line: 1, column: 1 },
       },
-    }, this.store.get().document?.fontScale ?? 100);
+    };
+    const size = sizeForNode(visualNode, this.store.get().document?.fontScale ?? 100);
     const position = {
       x: Math.round(center.x - size.width / 2),
       y: Math.round(center.y - size.height / 2),
