@@ -203,6 +203,7 @@ export class BranchScriptApp {
     this.updateProjectActions();
     this.updateStatus("Ready", "ok");
     void this.refreshSession(true, saved?.cloudReference);
+    if (/\/app\/admin\/?$/.test(window.location.pathname)) void this.openAdminPanel();
   }
 
   private template(): string {
@@ -606,7 +607,6 @@ export class BranchScriptApp {
                   <button class="button ghost" id="resend-verification-button" type="button">Send another code</button>
                 </form>
                 <p id="auth-message" class="auth-message" role="status"></p>
-                <button id="auth-admin" class="button ghost" type="button">Admin access</button>
                 <button class="button ghost" type="button" data-cookie-settings>Cookie settings</button>
               </section>
               <section id="signed-in-view" class="cloud-library" hidden>
@@ -659,7 +659,6 @@ export class BranchScriptApp {
           <div class="profile-content"><h3 id="profile-name"></h3><p id="profile-email"></p><p id="profile-quota"></p>
             <p>Free plan · up to 25 private diagrams</p>
             <button id="profile-library" class="button primary" type="button">My diagrams</button>
-            <button id="profile-admin" class="button ghost" type="button">Admin statistics</button>
             <button class="button ghost" type="button" data-cookie-settings>Cookie settings</button>
             <button id="profile-signout" class="button ghost" type="button">Sign out</button>
           </div>
@@ -822,8 +821,6 @@ export class BranchScriptApp {
       this.openAccountPanel();
     });
     this.requireElement("profile-signout").addEventListener("click", () => void this.signOut());
-    this.requireElement("auth-admin").addEventListener("click", () => void this.openAdminPanel());
-    this.requireElement("profile-admin").addEventListener("click", () => void this.openAdminPanel());
     this.requireElement("admin-close").addEventListener("click", () => { this.requireElement("admin-panel").hidden = true; });
     this.requireElement("admin-login-form").addEventListener("submit", (event) => void this.unlockAdmin(event));
     this.requireElement("admin-refresh").addEventListener("click", () => void this.loadAdminStats());

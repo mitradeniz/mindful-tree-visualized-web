@@ -1582,7 +1582,7 @@ a.button {
 .mobile-project-content { display: grid; gap: 10px; padding: 18px; }
 #save-name-panel { z-index: 220; background: #0006; }
 #save-name-panel .confirmation-dialog { display: block; }
-.template-group[hidden], #profile-panel[hidden], #admin-panel[hidden], #profile-admin[hidden], #confirmation-save[hidden] { display: none; }
+.template-group[hidden], #profile-panel[hidden], #admin-panel[hidden], #confirmation-save[hidden] { display: none; }
 #save-name-panel form { width: 100%; }
 #save-name-panel input { width: 100%; padding: 12px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; }
 @media (max-width: 560px) { .drawing-toolbar { top: 104px; right: 8px; left: 8px; gap: 3px; max-width: none; } .project-save-state { display: none; } }

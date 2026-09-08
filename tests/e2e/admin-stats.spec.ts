@@ -24,11 +24,8 @@ test("unlocks statistics with a separate admin key session", async ({ page }) =>
     }
     return route.fulfill({ status: 200, json: { diagrams: [] } });
   });
-  await page.goto("/app/");
-  await expect(page.locator("#account-button")).toHaveAttribute("data-signed-in", "true");
-  await page.locator("#profile-button").click();
-  await expect(page.locator("#profile-admin")).toBeVisible();
-  await page.locator("#profile-admin").click();
+  await page.goto("/app/admin/");
+  await expect(page.locator("#auth-admin, #profile-admin")).toHaveCount(0);
   await expect(page.locator("#admin-panel")).toBeVisible();
   await page.locator("#admin-login-form input[name=key]").fill("0123456789abcdef0123456789abcdef");
   await page.locator("#admin-login-form button[type=submit]").click();
