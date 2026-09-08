@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { authErrorMessage, CloudApiError, getSession, listDiagrams, register } from "../src/auth/cloud-api";
+import { authErrorMessage, CloudApiError, createAdminSession, getAdminStats, getSession, listDiagrams, register } from "../src/auth/cloud-api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -20,6 +20,30 @@ describe("cloud API response validation", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/branchscript/session",
       expect.objectContaining({ cache: "no-store", credentials: "include", mode: "cors", redirect: "error" }),
+    );
+  });
+
+  it("validates non-negative integer admin statistics", async () => {
+    const response = jsonResponse({ stats: {
+      users_total: 10, users_verified: 8, users_pending: 2,
+      visitors_total: 20, visitors_today: 3, visitors_7d: 11,
+      page_views_total: 42, site_page_views: 18, app_page_views: 24,
+      diagrams_total: 16, diagram_owners: 6,
+    } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+    await expect(getAdminStats()).resolves.toMatchObject({ users_total: 10, visitors_today: 3 });
+  });
+
+  it("exchanges an admin key without persisting it in browser storage", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const key = "0123456789abcdef0123456789abcdef";
+
+    await createAdminSession(key);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/branchscript/admin/session",
+      expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ key }) }),
     );
   });
 
@@ -48,6 +72,15 @@ describe("authentication error messages", () => {
   it("keeps specific account guidance for known errors", () => {
     expect(authErrorMessage(new CloudApiError(403, "err_not_verified"))).toBe(
       "Verify your email before signing in.",
+    );
+  });
+
+  it("shows safe guidance for brute-force and email-capacity limits", () => {
+    expect(authErrorMessage(new CloudApiError(429, "err_too_many_attempts"))).toBe(
+      "Too many attempts. Please wait and try again.",
+    );
+    expect(authErrorMessage(new CloudApiError(429, "err_email_capacity_limited"))).toBe(
+      "Email delivery is temporarily limited. Please try again later.",
     );
   });
 

@@ -5,9 +5,12 @@ import { AppStore } from "./app-store";
 import { projectFingerprint } from "./project-state";
 import {
   authErrorMessage,
+  createAdminSession,
   createDiagram,
+  deleteAdminSession,
   deleteDiagram,
   getDiagram,
+  getAdminStats,
   getSession,
   listDiagrams,
   login,
@@ -16,7 +19,9 @@ import {
   resendVerification,
   updateDiagram,
   verifyEmail,
+  CloudApiError,
   type BranchScriptUser,
+  type AdminStats,
   type CloudDiagram,
   type CloudDiagramSummary,
 } from "../auth/cloud-api";
@@ -601,6 +606,8 @@ export class BranchScriptApp {
                   <button class="button ghost" id="resend-verification-button" type="button">Send another code</button>
                 </form>
                 <p id="auth-message" class="auth-message" role="status"></p>
+                <button id="auth-admin" class="button ghost" type="button">Admin access</button>
+                <button class="button ghost" type="button" data-cookie-settings>Cookie settings</button>
               </section>
               <section id="signed-in-view" class="cloud-library" hidden>
                 <div class="account-summary">
@@ -652,7 +659,27 @@ export class BranchScriptApp {
           <div class="profile-content"><h3 id="profile-name"></h3><p id="profile-email"></p><p id="profile-quota"></p>
             <p>Free plan · up to 25 private diagrams</p>
             <button id="profile-library" class="button primary" type="button">My diagrams</button>
+            <button id="profile-admin" class="button ghost" type="button">Admin statistics</button>
+            <button class="button ghost" type="button" data-cookie-settings>Cookie settings</button>
             <button id="profile-signout" class="button ghost" type="button">Sign out</button>
+          </div>
+        </aside>
+        <aside id="admin-panel" class="side-panel admin-panel" aria-labelledby="admin-title" hidden>
+          <header class="side-panel-header"><div><span class="eyebrow">ADMIN</span><h2 id="admin-title">Site statistics</h2></div><button id="admin-close" class="icon-button" aria-label="Close admin statistics" type="button">×</button></header>
+          <div class="admin-content">
+            <form id="admin-login-form" class="auth-form admin-login-form">
+              <h3>Admin access</h3>
+              <p>The key is verified by the server and is never saved in browser storage.</p>
+              <label class="field"><span>Admin key</span><input name="key" type="password" autocomplete="off" minlength="32" maxlength="512" required /></label>
+              <button class="button primary" type="submit">Unlock statistics</button>
+              <p id="admin-message" class="auth-message" role="status"></p>
+            </form>
+            <section id="admin-stats-view" hidden>
+              <p class="admin-privacy-note">Privacy-safe totals from registered accounts, saved diagrams, and consented anonymous visits.</p>
+              <div id="admin-stats" class="admin-stats" aria-live="polite"></div>
+              <p id="admin-session-message" class="auth-message" role="status"></p>
+              <div class="admin-actions"><button id="admin-refresh" class="button ghost" type="button">Refresh statistics</button><button id="admin-lock" class="button ghost" type="button">Lock admin session</button></div>
+            </section>
           </div>
         </aside>
       </main>
@@ -795,6 +822,12 @@ export class BranchScriptApp {
       this.openAccountPanel();
     });
     this.requireElement("profile-signout").addEventListener("click", () => void this.signOut());
+    this.requireElement("auth-admin").addEventListener("click", () => void this.openAdminPanel());
+    this.requireElement("profile-admin").addEventListener("click", () => void this.openAdminPanel());
+    this.requireElement("admin-close").addEventListener("click", () => { this.requireElement("admin-panel").hidden = true; });
+    this.requireElement("admin-login-form").addEventListener("submit", (event) => void this.unlockAdmin(event));
+    this.requireElement("admin-refresh").addEventListener("click", () => void this.loadAdminStats());
+    this.requireElement("admin-lock").addEventListener("click", () => void this.lockAdmin());
     this.requireElement("category-examples-button").addEventListener("click", () => this.openTemplateLibrary(this.store.get().document?.view));
     window.addEventListener("beforeunload", (event) => {
       this.flushQuickEditorSync();
@@ -821,6 +854,7 @@ export class BranchScriptApp {
         closeProjectMenu();
         if (this.saveNameResolver) { event.stopImmediatePropagation(); this.resolveSaveName(null); }
         this.requireElement("profile-panel").hidden = true;
+        this.requireElement("admin-panel").hidden = true;
       }
     });
     this.requireElement("library-save-button").addEventListener("click", () => void this.saveToCloud());
@@ -2521,6 +2555,77 @@ export class BranchScriptApp {
     void this.refreshCloudLibrary().then(() => {
       this.requireElement("profile-quota").textContent = `${this.cloudDiagrams.length} / 25`;
     });
+  }
+
+  private async openAdminPanel(): Promise<void> {
+    this.requireElement("profile-panel").hidden = true;
+    this.requireElement("account-panel").hidden = true;
+    this.requireElement("admin-panel").hidden = false;
+    await this.loadAdminStats();
+  }
+
+  private async loadAdminStats(): Promise<void> {
+    const target = this.requireElement("admin-stats");
+    const loginView = this.requireElement("admin-login-form");
+    const statsView = this.requireElement("admin-stats-view");
+    target.innerHTML = "<p>Loading statistics…</p>";
+    try {
+      const stats = await getAdminStats();
+      loginView.hidden = true;
+      statsView.hidden = false;
+      this.requireElement("admin-session-message").textContent = "";
+      target.innerHTML = this.adminStatsMarkup(stats);
+    } catch (error) {
+      statsView.hidden = true;
+      loginView.hidden = false;
+      this.setAdminMessage(error instanceof CloudApiError && (error.status === 401 || error.status === 403) ? "" : authErrorMessage(error), true);
+    }
+  }
+
+  private async unlockAdmin(event: Event): Promise<void> {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    const values = new FormData(form);
+    this.setAdminMessage("Unlocking statistics…");
+    try {
+      await createAdminSession(String(values.get("key") ?? ""));
+      form.reset();
+      this.setAdminMessage("");
+      await this.loadAdminStats();
+    } catch (error) {
+      const message = this.requireElement("admin-session-message");
+      message.textContent = t(authErrorMessage(error));
+      message.classList.add("error");
+    }
+  }
+
+  private async lockAdmin(): Promise<void> {
+    try {
+      await deleteAdminSession();
+      this.requireElement("admin-stats-view").hidden = true;
+      this.requireElement("admin-login-form").hidden = false;
+      this.setAdminMessage("");
+    } catch (error) {
+      this.setAdminMessage(authErrorMessage(error), true);
+    }
+  }
+
+  private setAdminMessage(message: string, isError = false): void {
+    const target = this.requireElement("admin-message");
+    target.textContent = t(message);
+    target.classList.toggle("error", isError);
+  }
+
+  private adminStatsMarkup(stats: AdminStats): string {
+    const items: Array<[string, number]> = [
+      ["Registered users", stats.users_total], ["Verified users", stats.users_verified],
+      ["Pending verification", stats.users_pending], ["Visitors today", stats.visitors_today],
+      ["Visitors in 7 days", stats.visitors_7d], ["All consented visitors", stats.visitors_total],
+      ["Total page views", stats.page_views_total], ["Website page views", stats.site_page_views],
+      ["Playground page views", stats.app_page_views], ["Saved diagrams", stats.diagrams_total],
+      ["Diagram owners", stats.diagram_owners],
+    ];
+    return items.map(([label, value]) => `<article><span>${t(label)}</span><strong>${value.toLocaleString()}</strong></article>`).join("");
   }
 
   private async removeCloudDiagram(diagram: CloudDiagramSummary): Promise<void> {

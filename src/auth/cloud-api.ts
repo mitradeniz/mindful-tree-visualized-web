@@ -6,6 +6,20 @@ export interface BranchScriptUser {
   full_name: string;
 }
 
+export interface AdminStats {
+  users_total: number;
+  users_verified: number;
+  users_pending: number;
+  visitors_total: number;
+  visitors_today: number;
+  visitors_7d: number;
+  page_views_total: number;
+  site_page_views: number;
+  app_page_views: number;
+  diagrams_total: number;
+  diagram_owners: number;
+}
+
 export interface CloudDiagram {
   id: number;
   title: string;
@@ -41,6 +55,7 @@ const diagramIdSchema = z.number().int().positive();
 const nodeIdSchema = z.string().regex(/^[A-Za-z][\w-]*$/).max(80);
 const emailSchema = z.string().email().max(254);
 const passwordSchema = z.string().min(1).max(72);
+const adminKeySchema = z.string().min(32).max(512);
 const pointSchema = z.object({
   x: z.number().finite().min(-1_000_000).max(1_000_000),
   y: z.number().finite().min(-1_000_000).max(1_000_000),
@@ -52,6 +67,20 @@ const userSchema = z.object({
   id: z.number().int().positive(),
   email: emailSchema,
   full_name: z.string().max(100),
+});
+const countSchema = z.number().int().nonnegative();
+const adminStatsSchema = z.object({
+  users_total: countSchema,
+  users_verified: countSchema,
+  users_pending: countSchema,
+  visitors_total: countSchema,
+  visitors_today: countSchema,
+  visitors_7d: countSchema,
+  page_views_total: countSchema,
+  site_page_views: countSchema,
+  app_page_views: countSchema,
+  diagrams_total: countSchema,
+  diagram_owners: countSchema,
 });
 const diagramSchema = z.object({
   id: z.number().int().positive(),
@@ -266,6 +295,23 @@ export async function deleteDiagram(id: number): Promise<void> {
   await request(`/api/v1/branchscript/diagrams/${diagramId}`, { method: "DELETE" });
 }
 
+export async function getAdminStats(): Promise<AdminStats> {
+  const body = await request("/api/v1/branchscript/admin/stats", {}, z.object({ stats: adminStatsSchema }));
+  return body.stats;
+}
+
+export async function createAdminSession(key: string): Promise<void> {
+  const input = validateInput(z.object({ key: adminKeySchema }), { key });
+  await request("/api/v1/branchscript/admin/session", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteAdminSession(): Promise<void> {
+  await request("/api/v1/branchscript/admin/session", { method: "DELETE" });
+}
+
 export function authErrorMessage(error: unknown): string {
   if (!(error instanceof CloudApiError)) return "The service is currently unavailable.";
   const message = {
@@ -275,14 +321,24 @@ export function authErrorMessage(error: unknown): string {
     err_not_verified: "Verify your email before signing in.",
     err_user_not_found: "Email or password is incorrect.",
     err_wrong_password: "Email or password is incorrect.",
+    err_invalid_credentials: "Email or password is incorrect.",
     err_wrong_code: "The verification code is incorrect.",
     err_code_expired: "The verification code has expired.",
+    err_invalid_or_expired_code: "The verification code is invalid or expired.",
+    err_invalid_or_expired_token: "The reset code is invalid or expired.",
     err_revision_conflict: "This diagram changed elsewhere. Reopen it before saving.",
     err_diagram_limit: "Your cloud library has reached the 25-diagram limit.",
     err_origin_denied: "This request was blocked by the security policy.",
     err_service_unavailable: "Account services are temporarily unavailable.",
     err_already_verified: "This email is already verified. You can sign in.",
     err_resend_cooldown: "Wait a moment before requesting another code.",
+    err_too_many_requests: "Too many requests. Please wait and try again.",
+    err_too_many_attempts: "Too many attempts. Please wait and try again.",
+    err_email_capacity_limited: "Email delivery is temporarily limited. Please try again later.",
+    err_auth_protection_unavailable: "Account protection is temporarily unavailable. Please try again later.",
+    err_invalid_admin_key: "The admin key is incorrect.",
+    err_admin_unauthorized: "Enter the admin key to continue.",
+    err_admin_unavailable: "Admin access is not configured on the server.",
   }[error.code];
   if (message) return message;
   if (error.status === 403) return "This request was blocked by the security policy.";

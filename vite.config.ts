@@ -10,6 +10,7 @@ export default defineConfig({
     brainstormingMaps: resolve(import.meta.dirname, "blog/brainstorming-maps.html"),
     algorithmVisualization: resolve(import.meta.dirname, "blog/algorithm-visualization.html"),
     faq: resolve(import.meta.dirname, "faq/index.html"),
+    privacy: resolve(import.meta.dirname, "privacy/index.html"),
   },
   build: {
     license: {

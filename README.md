@@ -143,6 +143,10 @@ question ownership "What did you own?"
 
 Live Run presents these fields as recall cards. Each visual view has its own motion language: branching for trees, forward movement for flows, pulses for neural maps, decision flashes for logic, stepped scans for algorithms, and shifting cells for data structures.
 
+## Privacy and analytics
+
+Local diagrams remain in the browser unless the user explicitly saves them to the private cloud. The sign-in session uses a necessary Secure, HttpOnly cookie. Anonymous visit counting is disabled until the visitor accepts it; the optional first-party identifier records only a daily `site` or `app` page bucket and never sends diagram content. Visitors can revisit the choice from Cookie settings or the [privacy page](privacy/index.html).
+
 ## Architecture
 
 See [docs/architecture.md](docs/architecture.md) for the data flow and module boundaries.

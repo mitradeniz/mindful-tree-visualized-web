@@ -28,3 +28,22 @@ test("keeps the landing documentation inside a mobile viewport", async ({ page }
   const codePanel = page.locator(".syntax-code-panel pre");
   expect(await codePanel.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
 });
+
+test("does not count a visit before consent and lets the visitor revoke it", async ({ page }) => {
+  let visits = 0;
+  await page.route("**/api/v1/branchscript/analytics/visit", async (route) => {
+    visits += 1;
+    await route.fulfill({ status: 204 });
+  });
+  await page.goto("/");
+  await expect(page.getByRole("dialog", { name: "Cookie preferences" })).toBeVisible();
+  expect(visits).toBe(0);
+
+  await page.getByRole("button", { name: "Accept anonymous analytics" }).click();
+  await expect.poll(() => visits).toBe(1);
+  expect((await page.context().cookies()).some((cookie) => cookie.name === "branchscript_visitor")).toBe(true);
+
+  await page.getByRole("link", { name: "Cookie settings" }).click();
+  await page.getByRole("button", { name: "Necessary only" }).click();
+  expect((await page.context().cookies()).some((cookie) => cookie.name === "branchscript_visitor")).toBe(false);
+});
