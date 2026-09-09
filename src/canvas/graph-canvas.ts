@@ -83,6 +83,7 @@ const touchDoubleTapDelay = 320;
 const nodeEditDelay = 220;
 const nodeDoubleClickDelay = 360;
 const virtualNodeThreshold = 120;
+const needsFirefoxVirtualRenderRefresh = navigator.userAgent.includes("Firefox/");
 const minBoxWidth = 120;
 const minBoxHeight = 60;
 const maxBoxWidth = 1_200;
@@ -1001,7 +1002,15 @@ export class GraphCanvas {
     if (shouldEnable === this.virtualRenderEnabled) return;
     this.virtualRenderEnabled = shouldEnable;
     if (shouldEnable) this.graph.enableVirtualRender();
-    else this.graph.disableVirtualRender();
+    else {
+      this.graph.disableVirtualRender();
+      // X6 leaves waiting views unmounted in Firefox when virtual rendering is
+      // disabled during a fit/zoom transition. Reinsert the existing cells in
+      // one synchronous render pass so overview mode never shows edges alone.
+      if (needsFirefoxVirtualRenderRefresh) {
+        this.graph.resetCells([...this.graph.getCells()], { async: false });
+      }
+    }
   }
 
   private queueTouchTransform(dx: number, dy: number, scale: number | null = null, center: Point | null = null): void {
@@ -2000,6 +2009,11 @@ export class GraphCanvas {
   fit(): void {
     this.graph.zoomToFit({ padding: 48, minScale: 0.01, maxScale: 1.05 });
     this.graph.centerContent();
+    // X6 can emit the scale event before Firefox exposes the final transform.
+    // Reconcile detail and virtual-render state after both fit operations.
+    this.updateZoomDetailLevel();
+    this.updateVirtualRenderMode();
+    this.scheduleViewportOverlays();
   }
 
   undo(): void {

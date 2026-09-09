@@ -29,9 +29,12 @@ describe("cloud API response validation", () => {
       visitors_total: 20, visitors_today: 3, visitors_7d: 11,
       page_views_total: 42, site_page_views: 18, app_page_views: 24,
       diagrams_total: 16, diagram_owners: 6,
+      accounts: [{ id: 7, email: "person@example.com", full_name: "Person", verified: true, created_at: "2026-09-01T10:00:00Z", last_login_at: null, diagram_count: 3 }],
+      daily_visits: [{ date: "2026-09-08", visitors: 3, page_views: 5, site_page_views: 2, app_page_views: 3 }],
+      countries: [{ country_code: "TR", visitors: 3, page_views: 5 }],
     } });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
-    await expect(getAdminStats()).resolves.toMatchObject({ users_total: 10, visitors_today: 3 });
+    await expect(getAdminStats()).resolves.toMatchObject({ users_total: 10, visitors_today: 3, accounts: [{ diagram_count: 3 }] });
   });
 
   it("exchanges an admin key without persisting it in browser storage", async () => {

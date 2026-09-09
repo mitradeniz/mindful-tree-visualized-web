@@ -18,6 +18,33 @@ export interface AdminStats {
   app_page_views: number;
   diagrams_total: number;
   diagram_owners: number;
+  accounts: AdminAccountStat[];
+  daily_visits: AdminDailyVisitStat[];
+  countries: AdminCountryStat[];
+}
+
+export interface AdminAccountStat {
+  id: number;
+  email: string;
+  full_name: string;
+  verified: boolean;
+  created_at: string;
+  last_login_at: string | null;
+  diagram_count: number;
+}
+
+export interface AdminDailyVisitStat {
+  date: string;
+  visitors: number;
+  page_views: number;
+  site_page_views: number;
+  app_page_views: number;
+}
+
+export interface AdminCountryStat {
+  country_code: string;
+  visitors: number;
+  page_views: number;
 }
 
 export interface CloudDiagram {
@@ -69,6 +96,27 @@ const userSchema = z.object({
   full_name: z.string().max(100),
 });
 const countSchema = z.number().int().nonnegative();
+const adminAccountSchema = z.object({
+  id: z.number().int().positive(),
+  email: emailSchema,
+  full_name: z.string().max(100),
+  verified: z.boolean(),
+  created_at: z.string().max(40),
+  last_login_at: z.string().max(40).nullable(),
+  diagram_count: countSchema,
+});
+const adminDailyVisitSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  visitors: countSchema,
+  page_views: countSchema,
+  site_page_views: countSchema,
+  app_page_views: countSchema,
+});
+const adminCountrySchema = z.object({
+  country_code: z.string().regex(/^[A-Z0-9]{2}$/),
+  visitors: countSchema,
+  page_views: countSchema,
+});
 const adminStatsSchema = z.object({
   users_total: countSchema,
   users_verified: countSchema,
@@ -81,6 +129,9 @@ const adminStatsSchema = z.object({
   app_page_views: countSchema,
   diagrams_total: countSchema,
   diagram_owners: countSchema,
+  accounts: z.array(adminAccountSchema).max(500),
+  daily_visits: z.array(adminDailyVisitSchema).max(31),
+  countries: z.array(adminCountrySchema).max(100),
 });
 const diagramSchema = z.object({
   id: z.number().int().positive(),

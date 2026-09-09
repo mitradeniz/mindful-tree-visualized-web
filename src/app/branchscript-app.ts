@@ -2622,7 +2622,56 @@ export class BranchScriptApp {
       ["Playground page views", stats.app_page_views], ["Saved diagrams", stats.diagrams_total],
       ["Diagram owners", stats.diagram_owners],
     ];
-    return items.map(([label, value]) => `<article><span>${t(label)}</span><strong>${value.toLocaleString()}</strong></article>`).join("");
+    const summary = items.map(([label, value]) => `<article><span>${t(label)}</span><strong>${value.toLocaleString()}</strong></article>`).join("");
+    const daily = [...stats.daily_visits].reverse().map((item) => `<tr>
+      <td>${this.escapeAdminText(this.formatAdminDate(item.date))}</td>
+      <td>${item.visitors.toLocaleString()}</td><td>${item.page_views.toLocaleString()}</td>
+      <td>${item.site_page_views.toLocaleString()}</td><td>${item.app_page_views.toLocaleString()}</td>
+    </tr>`).join("");
+    const countries = stats.countries.map((item) => `<tr>
+      <td><span class="admin-country-code">${this.escapeAdminText(item.country_code)}</span>${this.escapeAdminText(this.countryName(item.country_code))}</td>
+      <td>${item.visitors.toLocaleString()}</td><td>${item.page_views.toLocaleString()}</td>
+    </tr>`).join("");
+    const accounts = stats.accounts.map((account) => `<tr>
+      <td><strong>${this.escapeAdminText(account.full_name || "—")}</strong><small>${this.escapeAdminText(account.email)}</small></td>
+      <td>${account.verified ? t("Verified") : t("Pending")}</td>
+      <td>${account.diagram_count.toLocaleString()}</td>
+      <td>${this.escapeAdminText(this.formatAdminDate(account.created_at))}</td>
+      <td>${account.last_login_at ? this.escapeAdminText(this.formatAdminDate(account.last_login_at)) : "—"}</td>
+    </tr>`).join("");
+    return `
+      <div class="admin-summary-grid">${summary}</div>
+      <section class="admin-breakdown"><h3>${t("Daily visits · last 30 days")}</h3>
+        <div class="admin-table-wrap"><table><thead><tr><th>${t("Date")}</th><th>${t("Visitors")}</th><th>${t("Page views")}</th><th>${t("Website")}</th><th>${t("Playground")}</th></tr></thead><tbody>${daily}</tbody></table></div>
+      </section>
+      <section class="admin-breakdown"><h3>${t("Countries · last 30 days")}</h3>
+        <div class="admin-table-wrap"><table><thead><tr><th>${t("Country")}</th><th>${t("Visitors")}</th><th>${t("Page views")}</th></tr></thead><tbody>${countries || `<tr><td colspan="3">${t("No consented visits yet.")}</td></tr>`}</tbody></table></div>
+      </section>
+      <section class="admin-breakdown"><h3>${t("Registered accounts")}</h3><p>${t("Up to 500 most recently created active accounts are shown.")}</p>
+        <div class="admin-table-wrap"><table><thead><tr><th>${t("Account")}</th><th>${t("Status")}</th><th>${t("Diagrams")}</th><th>${t("Created")}</th><th>${t("Last login")}</th></tr></thead><tbody>${accounts || `<tr><td colspan="5">${t("No registered accounts yet.")}</td></tr>`}</tbody></table></div>
+      </section>`;
+  }
+
+  private formatAdminDate(value: string): string {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00Z`) : new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return new Intl.DateTimeFormat(getLocale(), { dateStyle: "medium" }).format(date);
+  }
+
+  private countryName(code: string): string {
+    if (code === "XX") return t("Unknown");
+    if (code === "T1") return t("Tor network");
+    try {
+      return new Intl.DisplayNames([getLocale()], { type: "region" }).of(code) ?? code;
+    } catch {
+      return code;
+    }
+  }
+
+  private escapeAdminText(value: string): string {
+    return value.replace(/[&<>"']/g, (character) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    })[character] ?? character);
   }
 
   private async removeCloudDiagram(diagram: CloudDiagramSummary): Promise<void> {

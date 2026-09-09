@@ -60,7 +60,7 @@ function banner(): HTMLElement {
   element.setAttribute("role", "dialog");
   element.setAttribute("aria-label", t("Cookie preferences"));
   element.innerHTML = `
-    <div><strong>${t("Cookie preferences")}</strong><p>${t("We use a necessary secure cookie when you sign in. With your permission, one first-party cookie also counts anonymous visits; the analytics record contains no IP address, browser details, or diagram content.")} <a href="/privacy/">${t("Privacy details")}</a></p></div>
+    <div><strong>${t("Cookie preferences")}</strong><p>${t("We use a necessary secure cookie when you sign in. With your permission, one first-party cookie also counts anonymous visits and the country code supplied by our edge network; the analytics record contains no IP address, browser details, or diagram content.")} <a href="/privacy/">${t("Privacy details")}</a></p></div>
     <div class="cookie-consent-actions"><button type="button" data-cookie-reject>${t("Necessary only")}</button><button type="button" class="cookie-accept" data-cookie-accept>${t("Accept anonymous analytics")}</button></div>`;
   return element;
 }

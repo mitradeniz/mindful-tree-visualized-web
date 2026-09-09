@@ -88,6 +88,9 @@ describe("large canvas navigation", () => {
 
   it("uses virtual rendering for large diagrams", () => {
     expect(canvasSource).toContain("const virtualNodeThreshold = 120");
+    expect(canvasSource).toContain('const needsFirefoxVirtualRenderRefresh = navigator.userAgent.includes("Firefox/")');
+    expect(canvasSource).toContain("this.graph.resetCells([...this.graph.getCells()], { async: false })");
+    expect(canvasSource).toContain("this.updateVirtualRenderMode();");
     expect(canvasSource).toContain("document.nodes.length > virtualNodeThreshold");
     expect(canvasSource).toContain('zoomDetailLevel(this.graph.zoom()) !== "overview"');
     expect(canvasSource).toContain("this.updateVirtualRenderMode()");
